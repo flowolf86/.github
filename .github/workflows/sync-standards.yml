@@ -13,7 +13,7 @@ name: sync-standards
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - "standards/**"
       - ".github/workflows/sync-standards.yml"
@@ -63,7 +63,7 @@ jobs:
           title: "Sync shared conventions & lessons"
           body: |
             Automated sync of the canonical standards from
-            [`flowolf86/.github`](https://github.com/flowolf86/.github/tree/main/standards).
+            [`flowolf86/.github`](https://github.com/flowolf86/.github/tree/master/standards).
 
             Updates `.standards/CONVENTIONS.md` and `.standards/LESSONS.md` — the
             files this repo's `CLAUDE.md` imports. Edit the source there, never

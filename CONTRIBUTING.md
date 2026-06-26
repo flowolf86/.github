@@ -25,7 +25,7 @@ on paid plans, and by a client-side `pre-push` hook everywhere. Install the hook
 once per clone:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/flowolf86/.github/main/githooks/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/flowolf86/.github/master/githooks/install.sh | bash
 # or, from a checkout of this repo:  ./githooks/install.sh /path/to/your/clone
 ```
 
