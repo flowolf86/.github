@@ -49,7 +49,7 @@ jobs:
   test:
     name: Build image & run pytest on PostgreSQL
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # hard backstop so a hung job can't burn Actions minutes
+    timeout-minutes: 10  # hard backstop so a hung job can't burn Actions minutes
     services:
       postgres:
         image: postgres:16
@@ -97,7 +97,7 @@ jobs:
   lint:
     name: Type check (mypy)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -126,7 +126,7 @@ jobs:
   quality:
     name: Migration smoke test & coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16
@@ -183,7 +183,7 @@ jobs:
     name: E2E Tests (Playwright)
     if: ${{ inputs.run_e2e }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # hard backstop; a hung browser test can't burn the budget
+    timeout-minutes: 10  # hard backstop; a hung browser test can't burn the budget
     services:
       postgres:
         image: postgres:16
