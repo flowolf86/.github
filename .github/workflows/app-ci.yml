@@ -77,8 +77,8 @@ jobs:
 
       - name: Syntax-check client JS
         run: |
-          for f in app/static/*.js; do node --check "$f"; done
-          for f in app/static/locales/*.js; do node --check "$f"; done
+          shopt -s nullglob   # tolerate apps with no locales/ dir
+          for f in app/static/*.js app/static/locales/*.js; do node --check "$f"; done
 
       - name: Build production image
         run: docker build -t ${{ inputs.app_name }}:latest .
