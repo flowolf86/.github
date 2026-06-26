@@ -49,6 +49,7 @@ jobs:
   test:
     name: Build image & run pytest on PostgreSQL
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # hard backstop so a hung job can't burn Actions minutes
     services:
       postgres:
         image: postgres:16
@@ -96,6 +97,7 @@ jobs:
   lint:
     name: Type check (mypy)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -124,6 +126,7 @@ jobs:
   quality:
     name: Migration smoke test & coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -180,6 +183,7 @@ jobs:
     name: E2E Tests (Playwright)
     if: ${{ inputs.run_e2e }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # hard backstop; a hung browser test can't burn the budget
     services:
       postgres:
         image: postgres:16
@@ -215,6 +219,7 @@ jobs:
         run: |
           pip install -e "packages/foundation" --quiet
           pip install -e "app/[e2e]" --quiet
+          pip install pytest-timeout --quiet   # per-test hang guard
 
       - name: Install Playwright Chromium headless shell
         run: playwright install chromium-headless-shell --with-deps
@@ -227,4 +232,7 @@ jobs:
           GOOGLE_CLIENT_ID: fake-e2e-client-id
           GOOGLE_CLIENT_SECRET: fake-e2e-secret
           PUBLIC_BASE_URL: ${{ inputs.public_base_url }}
-        run: python -m pytest app/e2e/ -q --no-header --tb=short -c pytest-e2e.ini
+        # --timeout fails a hung test in ~90s (a real test takes <5s) instead of
+        # letting the job hang for the full runner limit. thread method works for
+        # the sync Playwright API.
+        run: python -m pytest app/e2e/ -q --no-header --tb=short -c pytest-e2e.ini --timeout=90 --timeout-method=thread
