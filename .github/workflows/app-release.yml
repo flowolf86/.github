@@ -1,0 +1,214 @@
+# Reusable Release → production for Foundation-based apps (beikost, packliste).
+#
+# The prod "go" is publishing a GitHub Release (or pushing a v* tag and releasing
+# it). This chained workflow guarantees the tag's image exists in GHCR *before*
+# the VPS pulls it — no race between build and deploy.
+#
+#   release published  →  test  →  build+push app image      ─┐
+#                                  build+push auth-service     ┴→  deploy to VPS
+#   workflow_dispatch  →  deploy already-built tag (manual rollback)
+#
+# auth-service is built from the foundation submodule and pushed to this repo's
+# GHCR namespace so the deploy step only needs the built-in GITHUB_TOKEN.
+#
+# Callers pass app_name + vps_path + image_tag (on dispatch); secrets are passed
+# with `secrets: inherit`. Source of truth lives in flowolf86/.github.
+name: app-release
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "App slug — Postgres user/db and local image tag (e.g. beikost)."
+        required: true
+        type: string
+      vps_path:
+        description: "Deploy directory on the VPS, e.g. /opt/beikost-app."
+        required: true
+        type: string
+      image_tag:
+        description: "On workflow_dispatch rollback: existing GHCR tag to (re)deploy."
+        required: false
+        type: string
+        default: ""
+    secrets:
+      FOUNDATION_DEPLOY_KEY:
+        required: true
+      VPS_SSH_KEY:
+        required: true
+      VPS_HOST:
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  test:
+    name: Build image & run pytest on PostgreSQL
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ${{ inputs.app_name }}
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ${{ inputs.app_name }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.app_name }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Build production image
+        run: docker build -t ${{ inputs.app_name }}:latest .
+
+      - name: Run unit tests (pytest on PostgreSQL)
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL="postgresql+asyncpg://${{ inputs.app_name }}:test@127.0.0.1:5432/${{ inputs.app_name }}" \
+            -e SESSION_SECRET="ci-gate-secret-padded-to-32-chars!!" \
+            -e ENVIRONMENT=dev \
+            -w /workspace/app \
+            ${{ inputs.app_name }}:latest \
+            python -m pytest tests/ -q --no-header --tb=short
+
+  build:
+    name: Build & push image to GHCR
+    needs: test
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.event.release.tag_name }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-auth-service:
+    name: Build & push auth-service to GHCR
+    needs: test
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/foundation/auth-service
+          push: true
+          tags: |
+            ${{ env.IMAGE }}/auth-service:${{ github.event.release.tag_name }}
+            ${{ env.IMAGE }}/auth-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to VPS
+    needs: [build, build-auth-service]
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (needs.build.result == 'success' && needs.build-auth-service.result == 'success')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up SSH to the VPS
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+          ssh-keyscan -t ed25519,rsa "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy compose files to the VPS
+        run: |
+          scp -i ~/.ssh/id_vps \
+            docker-compose.yml docker-compose.prod.yml \
+            root@${{ secrets.VPS_HOST }}:${{ inputs.vps_path }}/
+
+      # Log in to GHCR *on the VPS* using the ephemeral GITHUB_TOKEN (piped over
+      # stdin, never written to disk). All images live in this repo's GHCR
+      # namespace so GITHUB_TOKEN covers everything.
+      - name: Pull image and restart the stack
+        run: |
+          ssh -i ~/.ssh/id_vps root@${{ secrets.VPS_HOST }} \
+            "echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u ${{ github.actor }} --password-stdin \
+             && cd ${{ inputs.vps_path }} \
+             && export IMAGE_TAG='${{ steps.tag.outputs.tag }}' \
+             && docker compose -f docker-compose.yml -f docker-compose.prod.yml pull \
+             && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d \
+             && docker logout ghcr.io \
+             && docker image prune -f \
+             && docker ps --format 'table {{.Names}}\t{{.Status}}'"

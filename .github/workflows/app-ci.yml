@@ -1,0 +1,230 @@
+# Reusable CI for Foundation-based apps (beikost-app, packliste-app).
+#
+# Four parallel jobs gate every PR — all exercising PostgreSQL, the same backend
+# as production. SQLite is never used: it hides backend-specific bugs (RETURNING,
+# ON CONFLICT, lastrowid) that break writes in prod.
+#
+#   test     — production Docker image + pytest on PostgreSQL (exact prod env)
+#   lint     — mypy type check (fast, no DB)
+#   quality  — alembic upgrade-head smoke + pytest coverage threshold
+#   e2e      — Playwright browser tests on PostgreSQL (optional via run_e2e)
+#
+# Callers pass their app name; the DB user/name, image tag, and DSNs derive from
+# it. Call with `secrets: inherit` so FOUNDATION_DEPLOY_KEY reaches the submodule
+# fetch. Source of truth lives in flowolf86/.github — edit here, not per repo.
+name: app-ci
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "App slug — used for the Postgres user/db, image tag, and DSNs (e.g. beikost)."
+        required: true
+        type: string
+      coverage_threshold:
+        description: "pytest --cov-fail-under percentage for the quality job."
+        required: false
+        type: number
+        default: 65
+      run_e2e:
+        description: "Run the Playwright e2e job."
+        required: false
+        type: boolean
+        default: true
+      python_version:
+        required: false
+        type: string
+        default: "3.12"
+      public_base_url:
+        description: "PUBLIC_BASE_URL used by the e2e suite."
+        required: false
+        type: string
+        default: "http://localhost:8089"
+    secrets:
+      FOUNDATION_DEPLOY_KEY:
+        description: "Read-only deploy key for the private foundation submodule."
+        required: true
+
+jobs:
+  test:
+    name: Build image & run pytest on PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ${{ inputs.app_name }}
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ${{ inputs.app_name }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.app_name }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Syntax-check client JS
+        run: |
+          for f in app/static/*.js; do node --check "$f"; done
+          for f in app/static/locales/*.js; do node --check "$f"; done
+
+      - name: Build production image
+        run: docker build -t ${{ inputs.app_name }}:latest .
+
+      - name: Run unit tests (pytest on PostgreSQL)
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL="postgresql+asyncpg://${{ inputs.app_name }}:test@127.0.0.1:5432/${{ inputs.app_name }}" \
+            -e SESSION_SECRET="ci-gate-secret-padded-to-32-chars!!" \
+            -e ENVIRONMENT=dev \
+            -w /workspace/app \
+            ${{ inputs.app_name }}:latest \
+            python -m pytest tests/ -q --no-header --tb=short
+
+  lint:
+    name: Type check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e "packages/foundation" --quiet
+          pip install -e "app/[dev]" --quiet
+
+      - name: Run mypy
+        run: mypy app/ --ignore-missing-imports --exclude 'app/(migrations|e2e|tests)/'
+
+  quality:
+    name: Migration smoke test & coverage
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ${{ inputs.app_name }}
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ${{ inputs.app_name }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.app_name }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e "packages/foundation" --quiet
+          pip install -e "app/[dev]" --quiet
+
+      - name: Migration smoke test (alembic upgrade head)
+        env:
+          DATABASE_URL: postgresql+asyncpg://${{ inputs.app_name }}:test@localhost:5432/${{ inputs.app_name }}
+        working-directory: app
+        run: python -m alembic upgrade head
+
+      - name: Run unit tests with coverage
+        env:
+          DATABASE_URL: postgresql+asyncpg://${{ inputs.app_name }}:test@localhost:5432/${{ inputs.app_name }}
+          SESSION_SECRET: ci-gate-secret-padded-to-32-chars!!
+          ENVIRONMENT: dev
+        working-directory: app
+        run: |
+          python -m pytest tests/ -q --no-header --tb=short \
+            --cov=. --cov-report=term-missing --cov-fail-under=${{ inputs.coverage_threshold }}
+
+  e2e:
+    name: E2E Tests (Playwright)
+    if: ${{ inputs.run_e2e }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ${{ inputs.app_name }}
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ${{ inputs.app_name }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.app_name }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foundation submodule (read-only deploy key)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install app + E2E dependencies
+        run: |
+          pip install -e "packages/foundation" --quiet
+          pip install -e "app/[e2e]" --quiet
+
+      - name: Install Playwright Chromium headless shell
+        run: playwright install chromium-headless-shell --with-deps
+
+      - name: Run E2E tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://${{ inputs.app_name }}:test@localhost:5432/${{ inputs.app_name }}
+          SESSION_SECRET: e2e-ci-secret-padded-to-32-chars!!
+          ENVIRONMENT: dev
+          GOOGLE_CLIENT_ID: fake-e2e-client-id
+          GOOGLE_CLIENT_SECRET: fake-e2e-secret
+          PUBLIC_BASE_URL: ${{ inputs.public_base_url }}
+        run: python -m pytest app/e2e/ -q --no-header --tb=short -c pytest-e2e.ini

@@ -1,0 +1,137 @@
+# Reusable: auto-bump the foundation submodule to its latest *tagged* release.
+#
+# Polls (caller sets the schedule) and on demand. If foundation has a version tag
+# newer than the commit we currently pin, it advances the submodule to that tag,
+# validates the build against the same Postgres gate as app-ci/app-release, opens
+# a PR, and squash-merges it. Deploy still waits for a release — this only removes
+# the manual `git submodule update` chore, not the prod "go".
+#
+# Forward-only: bumps only when the newest tag is strictly ahead of the current
+# pin (never downgrades / never sidesteps to a divergent commit). Dormant until
+# foundation cuts version tags (v*) newer than the pinned commit.
+#
+# SSH-only, no new secrets: the private submodule is fetched with FOUNDATION_DEPLOY_KEY;
+# the PR is opened/merged with the built-in token. Source of truth: flowolf86/.github.
+name: app-bump-foundation
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "App slug — Postgres user/db and local image tag (e.g. packliste)."
+        required: true
+        type: string
+      base_branch:
+        required: false
+        type: string
+        default: master
+    secrets:
+      FOUNDATION_DEPLOY_KEY:
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: Bump foundation to latest tag (PR)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ${{ inputs.app_name }}
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: ${{ inputs.app_name }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.app_name }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Foundation deploy key (SSH)
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git submodule update --init --recursive
+
+      # Find the newest version tag on foundation and decide whether it's a
+      # strict forward bump from what we currently pin. Only then proceed.
+      - name: Resolve latest foundation tag
+        id: resolve
+        run: |
+          cd packages/foundation
+          git fetch --tags --force --quiet origin
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            echo "No version tags on foundation — nothing to do."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          current="$(git rev-parse HEAD)"
+          target="$(git rev-list -n1 "$latest")"
+          if [ "$current" = "$target" ]; then
+            echo "Already at latest tag $latest — nothing to do."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+          elif git merge-base --is-ancestor "$current" "$target"; then
+            echo "Forward bump available: $latest ($target) is ahead of current pin."
+            git checkout --quiet "$target"
+            echo "bump=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$latest" >> "$GITHUB_OUTPUT"
+            echo "short=$(git rev-parse --short "$target")" >> "$GITHUB_OUTPUT"
+          else
+            echo "Latest tag $latest is NOT strictly ahead of the current pin — skipping (no downgrade/sidestep)."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Validate the bumped submodule with the same gate as app-ci: build the prod
+      # image and run pytest inside it against the throwaway Postgres service.
+      # This makes the PR pre-validated even though bot PRs don't trigger ci.yml.
+      - name: Build production image
+        if: steps.resolve.outputs.bump == 'true'
+        run: docker build -t ${{ inputs.app_name }}:latest .
+
+      - name: Run unit tests (pytest on PostgreSQL)
+        if: steps.resolve.outputs.bump == 'true'
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL="postgresql+asyncpg://${{ inputs.app_name }}:test@127.0.0.1:5432/${{ inputs.app_name }}" \
+            -e SESSION_SECRET="ci-gate-secret-padded-to-32-chars!!" \
+            -e ENVIRONMENT=dev \
+            -w /workspace/app \
+            ${{ inputs.app_name }}:latest \
+            python -m pytest tests/ -q --no-header --tb=short
+
+      - name: Open / update bump PR
+        if: steps.resolve.outputs.bump == 'true'
+        id: pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automated/bump-foundation
+          base: ${{ inputs.base_branch }}
+          commit-message: "Bump foundation submodule to ${{ steps.resolve.outputs.tag }}"
+          title: "Bump foundation submodule to ${{ steps.resolve.outputs.tag }}"
+          body: |
+            Automated submodule bump to foundation **${{ steps.resolve.outputs.tag }}**
+            (`${{ steps.resolve.outputs.short }}`).
+
+            - Forward-only (the new tag is strictly ahead of the previous pin).
+            - **Pre-validated**: the prod image was built with this foundation and
+              the pytest-on-Postgres gate passed in the workflow run that opened
+              this PR.
+          add-paths: packages/foundation
+          delete-branch: true
+
+      - name: Merge bump PR immediately
+        if: steps.resolve.outputs.bump == 'true' && steps.pr.outputs.pull-request-number != ''
+        run: gh pr merge "${{ steps.pr.outputs.pull-request-number }}" --squash --delete-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,72 @@
+# Distribute the canonical standards into every consumer repo as a PR.
+#
+# standards/CONVENTIONS.md + standards/LESSONS.md in THIS repo are the single
+# source of truth. When they change (or on demand / weekly), this opens a PR in
+# each target repo updating its tracked `.standards/` copy — the files each
+# repo's CLAUDE.md @imports. Mirrors the foundation-bump pattern: bot PR, manual
+# (or auto) merge, no drift.
+#
+# Cross-repo writes need a PAT — the built-in GITHUB_TOKEN can't open PRs in
+# other repos. Provide `STANDARDS_SYNC_TOKEN` (fine-grained PAT with Contents +
+# Pull requests: write on the four repos) as an Actions secret on this repo.
+name: sync-standards
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "standards/**"
+      - ".github/workflows/sync-standards.yml"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC — drift backstop
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Sync standards → ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - flowolf86/beikost-app
+          - flowolf86/packliste-app
+          - flowolf86/foundation-api-engine
+          - flowolf86/labs-infra
+    steps:
+      - name: Check out standards source (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Check out target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ secrets.STANDARDS_SYNC_TOKEN }}
+          path: target
+
+      - name: Copy standards into target/.standards/
+        run: |
+          mkdir -p target/.standards
+          cp source/standards/CONVENTIONS.md target/.standards/CONVENTIONS.md
+          cp source/standards/LESSONS.md     target/.standards/LESSONS.md
+
+      - name: Open / update standards-sync PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: target
+          token: ${{ secrets.STANDARDS_SYNC_TOKEN }}
+          branch: automated/sync-standards
+          base: master
+          commit-message: "Sync shared standards from flowolf86/.github"
+          title: "Sync shared conventions & lessons"
+          body: |
+            Automated sync of the canonical standards from
+            [`flowolf86/.github`](https://github.com/flowolf86/.github/tree/main/standards).
+
+            Updates `.standards/CONVENTIONS.md` and `.standards/LESSONS.md` — the
+            files this repo's `CLAUDE.md` imports. Edit the source there, never
+            these copies.
+          add-paths: .standards/
+          delete-branch: true

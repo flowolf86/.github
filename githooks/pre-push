@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# Block direct pushes to master/main. Portable enforcement that works on every
+# plan (including Free private repos, where server-side rulesets are unavailable).
+# Installed via githooks/install.sh, which points core.hooksPath at the dir
+# holding this file.
+#
+# Bypass for a genuine exception:  git push --no-verify
+set -euo pipefail
+
+protected_re='^(refs/heads/)?(master|main)$'
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" =~ $protected_re ]]; then
+    echo "✋ Direct push to '${remote_ref#refs/heads/}' is blocked." >&2
+    echo "   Open a PR and squash-merge instead (see CONTRIBUTING.md)." >&2
+    echo "   Override for a real exception: git push --no-verify" >&2
+    exit 1
+  fi
+done
+
+exit 0
