@@ -40,6 +40,16 @@ pytest only drives the Python backend over HTTP; it never loads `app/static/*.js
 A syntax error there (e.g. smart-quotes mangling `i18n.js`) ships green yet breaks
 the whole UI. **Rule:** `node --check` every client script in CI before the build.
 
+## E2E (Playwright) jobs must have timeouts — a hang burns the whole budget
+
+A Playwright e2e test can hang indefinitely in CI (observed intermittently at
+~74% through the larger packliste suite; **not reproducible locally** — the suite
+passes in ~2.5 min — so it's CI-environment flakiness, not a code bug). Without a
+guard the job runs until the runner limit, wasting the monthly Actions budget.
+**Rule:** every e2e job sets `pytest --timeout=90 --timeout-method=thread`
+(via `pytest-timeout`) so a hang fails in ~90s, plus `timeout-minutes` on the job
+as a hard backstop. This lives in the reusable `app-ci.yml`.
+
 ## GitHub Actions budget resets monthly
 
 When the monthly Actions budget is exhausted, CI won't run. **Rule:** run the
