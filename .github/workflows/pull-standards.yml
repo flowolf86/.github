@@ -1,0 +1,59 @@
+# Reusable: pull the canonical standards from this hub into the CALLING repo and
+# open a PR there — token-free.
+#
+# Each consumer repo calls this on a schedule (and on demand). The job fetches
+# standards/CONVENTIONS.md + LESSONS.md from the PUBLIC hub (no auth needed) and
+# opens/updates a PR in the calling repo using the built-in GITHUB_TOKEN. No PAT,
+# no secret, survives a Pro->Free downgrade.
+#
+# GITHUB_TOKEN permissions are inherited from the caller, so the thin caller
+# workflow must grant `contents: write` + `pull-requests: write`. (Also declared
+# here for clarity.) Note: PRs opened by GITHUB_TOKEN don't auto-trigger CI —
+# fine, these are docs-only.
+name: pull-standards
+
+on:
+  workflow_call:
+    inputs:
+      base_branch:
+        required: false
+        type: string
+        default: master
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pull:
+    name: Pull shared standards & open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the calling repository
+        uses: actions/checkout@v4
+
+      - name: Fetch canonical standards from the hub (public, no auth)
+        run: |
+          mkdir -p .standards
+          base="https://raw.githubusercontent.com/flowolf86/.github/master/standards"
+          for f in CONVENTIONS.md LESSONS.md; do
+            curl -fsSL "$base/$f" -o ".standards/$f"
+          done
+
+      - name: Open / update standards-sync PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: automated/sync-standards
+          base: ${{ inputs.base_branch }}
+          commit-message: "Sync shared conventions & lessons from flowolf86/.github"
+          title: "Sync shared conventions & lessons"
+          body: |
+            Automated pull of the canonical standards from
+            [`flowolf86/.github`](https://github.com/flowolf86/.github/tree/master/standards).
+
+            Updates `.standards/CONVENTIONS.md` and `.standards/LESSONS.md` — the
+            files this repo's `CLAUDE.md` imports. Edit the source in the hub, not
+            these copies. (No-op PR if already in sync.)
+          add-paths: .standards/
+          delete-branch: true
