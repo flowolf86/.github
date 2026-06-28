@@ -44,6 +44,9 @@ on:
       FOUNDATION_DEPLOY_KEY:
         description: "Read-only deploy key for the private foundation submodule."
         required: true
+      FOUNDATION_UI_DEPLOY_KEY:
+        description: "Read-only deploy key for the private foundation-ui submodule (optional; apps that vendor it)."
+        required: false
 
 jobs:
   test:
@@ -68,12 +71,26 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch Foundation submodule (read-only deploy key)
+      - name: Fetch private submodules (read-only deploy keys)
+        env:
+          FOUNDATION_DEPLOY_KEY: ${{ secrets.FOUNDATION_DEPLOY_KEY }}
+          FOUNDATION_UI_DEPLOY_KEY: ${{ secrets.FOUNDATION_UI_DEPLOY_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          printf '%s\n' "$FOUNDATION_DEPLOY_KEY" > ~/.ssh/id_foundation
+          chmod 600 ~/.ssh/id_foundation
+          printf 'Host github.com\n  IdentityFile ~/.ssh/id_foundation\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          # Optional 2nd private submodule (foundation-ui): its own deploy key via
+          # a host alias so SSH offers the right key per repo. Deploy keys are
+          # per-repo, so one key can't reach both. No-op when the secret is unset
+          # (apps that don't vendor foundation-ui yet).
+          if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
+            printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
+            chmod 600 ~/.ssh/id_foundation_ui
+            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
+          fi
           git submodule update --init --recursive
 
       - name: Syntax-check client JS
@@ -102,12 +119,26 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch Foundation submodule (read-only deploy key)
+      - name: Fetch private submodules (read-only deploy keys)
+        env:
+          FOUNDATION_DEPLOY_KEY: ${{ secrets.FOUNDATION_DEPLOY_KEY }}
+          FOUNDATION_UI_DEPLOY_KEY: ${{ secrets.FOUNDATION_UI_DEPLOY_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          printf '%s\n' "$FOUNDATION_DEPLOY_KEY" > ~/.ssh/id_foundation
+          chmod 600 ~/.ssh/id_foundation
+          printf 'Host github.com\n  IdentityFile ~/.ssh/id_foundation\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          # Optional 2nd private submodule (foundation-ui): its own deploy key via
+          # a host alias so SSH offers the right key per repo. Deploy keys are
+          # per-repo, so one key can't reach both. No-op when the secret is unset
+          # (apps that don't vendor foundation-ui yet).
+          if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
+            printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
+            chmod 600 ~/.ssh/id_foundation_ui
+            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
+          fi
           git submodule update --init --recursive
 
       - name: Set up Python
@@ -145,12 +176,26 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch Foundation submodule (read-only deploy key)
+      - name: Fetch private submodules (read-only deploy keys)
+        env:
+          FOUNDATION_DEPLOY_KEY: ${{ secrets.FOUNDATION_DEPLOY_KEY }}
+          FOUNDATION_UI_DEPLOY_KEY: ${{ secrets.FOUNDATION_UI_DEPLOY_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          printf '%s\n' "$FOUNDATION_DEPLOY_KEY" > ~/.ssh/id_foundation
+          chmod 600 ~/.ssh/id_foundation
+          printf 'Host github.com\n  IdentityFile ~/.ssh/id_foundation\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          # Optional 2nd private submodule (foundation-ui): its own deploy key via
+          # a host alias so SSH offers the right key per repo. Deploy keys are
+          # per-repo, so one key can't reach both. No-op when the secret is unset
+          # (apps that don't vendor foundation-ui yet).
+          if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
+            printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
+            chmod 600 ~/.ssh/id_foundation_ui
+            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
+          fi
           git submodule update --init --recursive
 
       - name: Set up Python
@@ -202,12 +247,26 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Fetch Foundation submodule (read-only deploy key)
+      - name: Fetch private submodules (read-only deploy keys)
+        env:
+          FOUNDATION_DEPLOY_KEY: ${{ secrets.FOUNDATION_DEPLOY_KEY }}
+          FOUNDATION_UI_DEPLOY_KEY: ${{ secrets.FOUNDATION_UI_DEPLOY_KEY }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          printf '%s\n' "$FOUNDATION_DEPLOY_KEY" > ~/.ssh/id_foundation
+          chmod 600 ~/.ssh/id_foundation
+          printf 'Host github.com\n  IdentityFile ~/.ssh/id_foundation\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          # Optional 2nd private submodule (foundation-ui): its own deploy key via
+          # a host alias so SSH offers the right key per repo. Deploy keys are
+          # per-repo, so one key can't reach both. No-op when the secret is unset
+          # (apps that don't vendor foundation-ui yet).
+          if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
+            printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
+            chmod 600 ~/.ssh/id_foundation_ui
+            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
+          fi
           git submodule update --init --recursive
 
       - name: Set up Python
