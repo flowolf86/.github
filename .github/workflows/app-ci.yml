@@ -149,6 +149,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e "packages/foundation" --quiet
+          [ -d packages/foundation-ui ] && pip install -e packages/foundation-ui --quiet || true
           pip install -e "app/[dev]" --quiet
 
       - name: Run mypy
@@ -206,6 +207,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e "packages/foundation" --quiet
+          [ -d packages/foundation-ui ] && pip install -e packages/foundation-ui --quiet || true
           pip install -e "app/[dev]" --quiet
 
       - name: Migration smoke test (alembic upgrade head)
@@ -277,6 +279,7 @@ jobs:
       - name: Install app + E2E dependencies
         run: |
           pip install -e "packages/foundation" --quiet
+          [ -d packages/foundation-ui ] && pip install -e packages/foundation-ui --quiet || true
           pip install -e "app/[e2e]" --quiet
           pip install pytest-timeout --quiet   # per-test hang guard
 
