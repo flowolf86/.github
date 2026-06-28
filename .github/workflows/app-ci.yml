@@ -88,7 +88,7 @@ jobs:
           if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
             printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
             chmod 600 ~/.ssh/id_foundation_ui
-            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            printf 'Host github-ui\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
             git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
           fi
           git submodule update --init --recursive
@@ -136,7 +136,7 @@ jobs:
           if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
             printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
             chmod 600 ~/.ssh/id_foundation_ui
-            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            printf 'Host github-ui\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
             git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
           fi
           git submodule update --init --recursive
@@ -194,7 +194,7 @@ jobs:
           if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
             printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
             chmod 600 ~/.ssh/id_foundation_ui
-            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            printf 'Host github-ui\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
             git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
           fi
           git submodule update --init --recursive
@@ -266,7 +266,7 @@ jobs:
           if [ -n "$FOUNDATION_UI_DEPLOY_KEY" ]; then
             printf '%s\n' "$FOUNDATION_UI_DEPLOY_KEY" > ~/.ssh/id_foundation_ui
             chmod 600 ~/.ssh/id_foundation_ui
-            printf 'Host github-ui\n  HostName github.com\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            printf 'Host github-ui\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
             git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
           fi
           git submodule update --init --recursive
