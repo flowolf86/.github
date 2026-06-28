@@ -7,6 +7,11 @@ the copies.** These rules apply to both the human and to Claude Code.
 
 ## Branching & PR ceremony
 
+**The primary/default branch is `master`** (never `main`) in every repo,
+including newly created ones. If a repo gets created with `main`, rename it to
+`master` immediately (`gh api -X POST repos/<owner>/<repo>/branches/main/rename
+-f new_name=master`) and point any submodule `branch =` refs at `master`.
+
 **Branch → implement (+ tests) → version bump if user-facing → rebase → PR → CI green → squash merge → release**
 
 1. Create a branch. Never commit on `master`, never push directly to `master`.
