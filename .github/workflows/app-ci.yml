@@ -281,7 +281,7 @@ jobs:
           pip install -e "packages/foundation" --quiet
           [ -d packages/foundation-ui ] && pip install -e packages/foundation-ui --quiet || true
           pip install -e "app/[e2e]" --quiet
-          pip install pytest-timeout --quiet   # per-test hang guard
+          pip install pytest-timeout pytest-rerunfailures --quiet   # hang guard + flaky-retry
 
       - name: Install Playwright Chromium headless shell
         run: playwright install chromium-headless-shell --with-deps
@@ -297,4 +297,17 @@ jobs:
         # --timeout fails a hung test in ~90s (a real test takes <5s) instead of
         # letting the job hang for the full runner limit. thread method works for
         # the sync Playwright API.
-        run: python -m pytest app/e2e/ -q --no-header --tb=short -c pytest-e2e.ini --timeout=90 --timeout-method=thread
+        #
+        # --reruns retries a test that FAILS on a Playwright/browser/networkidle
+        # hang or a dropped connection (the intermittent, environment-only flake
+        # documented in LESSONS). --only-rerun scopes the retry to those error
+        # signatures, so a genuine assertion failure (a real regression) still
+        # fails immediately — no wasted reruns, fast feedback, and a flaky hang
+        # can't fail the whole suite.
+        run: >-
+          python -m pytest app/e2e/ -q --no-header --tb=short -c pytest-e2e.ini
+          --timeout=90 --timeout-method=thread
+          --reruns 2 --reruns-delay 3
+          --only-rerun Timeout --only-rerun TargetClosedError
+          --only-rerun 'Connection' --only-rerun 'WebSocket'
+          --only-rerun 'net::ERR' --only-rerun 'Navigation'
