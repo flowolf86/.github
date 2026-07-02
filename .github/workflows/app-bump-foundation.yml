@@ -28,6 +28,8 @@ on:
     secrets:
       FOUNDATION_DEPLOY_KEY:
         required: true
+      FOUNDATION_UI_DEPLOY_KEY:
+        required: false
 
 permissions:
   contents: write
@@ -55,12 +57,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Foundation deploy key (SSH)
+      - name: Set up Foundation deploy key(s) (SSH)
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.FOUNDATION_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # Optional 2nd private submodule (foundation-ui): its own deploy key via
+          # a dedicated SSH host alias (deploy keys are per-repo). User git is
+          # required or SSH connects as the runner user and the clone is denied.
+          # Without this, `git submodule update --recursive` fails to clone
+          # foundation-ui ("Repository not found") for apps that vendor it.
+          if [ -n "${{ secrets.FOUNDATION_UI_DEPLOY_KEY }}" ]; then
+            printf '%s\n' "${{ secrets.FOUNDATION_UI_DEPLOY_KEY }}" > ~/.ssh/id_foundation_ui
+            chmod 600 ~/.ssh/id_foundation_ui
+            printf 'Host github-ui\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+            git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
+          fi
           git submodule update --init --recursive
 
       # Find the newest version tag on foundation and decide whether it's a
