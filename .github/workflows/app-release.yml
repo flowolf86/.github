@@ -230,14 +230,23 @@ jobs:
       # Log in to GHCR *on the VPS* using the ephemeral GITHUB_TOKEN (piped over
       # stdin, never written to disk). All images live in this repo's GHCR
       # namespace so GITHUB_TOKEN covers everything.
+      # Serialise deploys host-wide with flock. All apps share this one VPS, so
+      # two release jobs firing at once make concurrent `docker compose pull`s
+      # collide in the containerd content store (`failed to lease content` /
+      # `content digest not found`) and `docker image prune` collide (`a prune
+      # operation is already running`). GitHub `concurrency:` groups can't span
+      # separate repos, so we take a host-level lock (fd 9) that every app's
+      # deploy contends on — later deploys wait up to 10 min instead of racing.
       - name: Pull image and restart the stack
         run: |
           ssh -i ~/.ssh/id_vps root@${{ secrets.VPS_HOST }} \
-            "echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u ${{ github.actor }} --password-stdin \
+            "( flock -w 600 9 || { echo 'deploy lock timeout (another deploy held it >10m)'; exit 1; } \
+             && echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u ${{ github.actor }} --password-stdin \
              && cd ${{ inputs.vps_path }} \
              && export IMAGE_TAG='${{ steps.tag.outputs.tag }}' \
              && docker compose -f docker-compose.yml -f docker-compose.prod.yml pull \
              && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d \
              && docker logout ghcr.io \
              && docker image prune -f \
-             && docker ps --format 'table {{.Names}}\t{{.Status}}'"
+             && docker ps --format 'table {{.Names}}\t{{.Status}}' \
+             ) 9>/var/lock/wolf-labs-deploy.lock"
