@@ -74,3 +74,33 @@ state. The remote branch always has the correct content. **Workaround:**
 After creating an entity the server redirects to `/?<param>=<id>`, not bare `/`,
 so `wait_for_url("**/")` hangs. **Rule:** assert on a visible element instead,
 e.g. `expect(page.locator(".card").first).to_be_visible(timeout=8000)`.
+
+## New repos default to read-only Actions permissions — breaks release.yml silently
+
+A brand-new repo's Settings → Actions → General → Workflow permissions defaults
+to "Read repository contents permission" (`default_workflow_permissions:
+"read"`). `app-release.yml` declares `permissions: packages: write` (needed to
+push images to GHCR) — on a "read" repo this makes the whole run fail with
+`conclusion: startup_failure` and **zero jobs scheduled**, no annotation, no
+check-run, nothing actionable in the UI. `ci.yml`'s call to `app-ci.yml` (only
+needs `contents: read`) works fine on the same repo, which makes this look
+like a bad workflow file rather than a permissions setting. **Rule:** when
+bootstrapping a new app repo, set this immediately —
+`gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow -f
+default_workflow_permissions=write -F can_approve_pull_request_reviews=false`
+— before wiring up `release.yml`, not after hitting the silent failure.
+
+## VPS: redeploy config changes through release.yml, never raw `docker compose up -d` over SSH
+
+Manually SSH'ing in and running `docker compose -f docker-compose.yml -f
+docker-compose.prod.yml up -d` to pick up a `.env` change left two apps
+(`packliste-app`, `gs-app`) crash-looping (exit code 3, dying right after the
+Alembic "Will assume transactional DDL" log line, no traceback) — removing the
+new env vars did not fix it, ruling out app code. Redeploying the identical
+image/config through `gh workflow run release.yml -f image_tag=<current-tag>`
+(clean `docker login` + `pull` + recreate via the CI runner) fixed both
+immediately. Root cause was never pinned down, but the CI path is evidently
+safer than ad-hoc SSH commands against shared Docker/containerd state on the
+single multi-app VPS. **Rule:** to apply an env change to a running app,
+`gh workflow run release.yml -f image_tag=<current-tag>` — never hand-run
+`docker compose up` over SSH.
