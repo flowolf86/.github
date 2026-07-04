@@ -65,6 +65,32 @@ pulling latest `master` on the VPS.
 - Port mapping lives in `docker-compose.yml` (host → container); change the host
   (left) side only.
 
+## Hub self-registration (new apps)
+
+Every new Foundation-based app **self-registers with the wolf-labs hub**
+(`dashboard-app`, `wolf-labs.de`) — the hub's product grid has no hardcoded app
+list; it renders whatever has announced itself. Wire this in on day one, not as
+an afterthought:
+
+1. In `shell_config.py`, give `Brand(...)` its `accent`, `status`
+   (`"live"`/`"beta"`), `description`, and `tags` — these render the app's
+   product card on the hub.
+2. In `module.py`'s `startup()`, call `foundation.registry.announce_once()` once
+   and `start_heartbeat()` for periodic re-announcement (call
+   `stop_heartbeat()` in `shutdown()`); build the manifest from `CONFIG.brand`
+   plus the icon extracted from the app's own `_app_logo.html` (single source
+   of truth — never duplicate the SVG). Gate all of it on
+   `settings.registry_url`/`settings.registry_token` being set, so an app with
+   neither configured is completely unaffected (no network calls, no
+   behavior change) — this must stay true for local dev and CI.
+3. Add `REGISTRY_URL`/`REGISTRY_TOKEN` to `.env.example` (unset by default).
+4. Requires `foundation-api-engine >= v0.4.0` (ships `foundation.registry`) and
+   `foundation-ui >= v0.6.0` (ships the `Brand` fields above).
+
+See `beikost-app`, `packliste-app`, `scuba-app`, or `gs-app`'s `module.py` /
+`shell_config.py` for the reference implementation, and `dashboard-app`'s
+`app/routers/registry.py` for the hub-side endpoint contract.
+
 ## Code style
 
 - All code, comments, and identifiers are **English**, even where UI content is
