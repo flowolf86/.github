@@ -42,6 +42,7 @@ jobs:
           done
 
       - name: Open / update standards-sync PR
+        id: cpr
         uses: peter-evans/create-pull-request@v6
         with:
           branch: automated/sync-standards
@@ -57,3 +58,25 @@ jobs:
             these copies. (No-op PR if already in sync.)
           add-paths: .standards/
           delete-branch: true
+
+      # Self-merge: these PRs are a docs-only mirror of the canonical hub, they
+      # carry no CI (GITHUB_TOKEN-opened PRs don't trigger workflows) and the
+      # consumer repos have no branch protection, so leaving them open just
+      # accumulates stale PRs. Squash-merge immediately when there's something to
+      # merge (operation is empty/"none" when already in sync → step skipped).
+      - name: Auto-merge the standards-sync PR
+        if: steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n="${{ steps.cpr.outputs.pull-request-number }}"
+          echo "standards-sync PR #$n (${{ steps.cpr.outputs.pull-request-operation }}) — merging"
+          # Mergeability is computed asynchronously by GitHub, so the first
+          # attempt can race; retry a few times before giving up.
+          for i in 1 2 3 4 5 6; do
+            if gh pr merge "$n" --squash --delete-branch --repo "${{ github.repository }}"; then
+              echo "merged"; exit 0
+            fi
+            echo "attempt $i not ready; retrying in 5s"; sleep 5
+          done
+          echo "::error::could not auto-merge standards-sync PR #$n"; exit 1
