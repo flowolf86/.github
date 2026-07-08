@@ -69,7 +69,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch private submodules (read-only deploy keys)
         env:
@@ -117,7 +117,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch private submodules (read-only deploy keys)
         env:
@@ -142,7 +142,7 @@ jobs:
           git submodule update --init --recursive
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
 
@@ -175,7 +175,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch private submodules (read-only deploy keys)
         env:
@@ -200,7 +200,7 @@ jobs:
           git submodule update --init --recursive
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
 
@@ -247,7 +247,7 @@ jobs:
           --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Fetch private submodules (read-only deploy keys)
         env:
@@ -272,7 +272,7 @@ jobs:
           git submodule update --init --recursive
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs.python_version }}
 
@@ -311,3 +311,4 @@ jobs:
           --only-rerun Timeout --only-rerun TargetClosedError
           --only-rerun 'Connection' --only-rerun 'WebSocket'
           --only-rerun 'net::ERR' --only-rerun 'Navigation'
+          --only-rerun 'timed out' --only-rerun 'DB connection'
