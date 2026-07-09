@@ -104,3 +104,44 @@ safer than ad-hoc SSH commands against shared Docker/containerd state on the
 single multi-app VPS. **Rule:** to apply an env change to a running app,
 `gh workflow run release.yml -f image_tag=<current-tag>` — never hand-run
 `docker compose up` over SSH.
+
+## Two private submodules need two deploy keys — a shared ssh-agent uses the wrong one
+
+An app that vendors BOTH `foundation` (foundation-api-engine) AND `foundation-ui`
+as private submodules needs a **separate read-only deploy key per repo** — a GitHub
+deploy key is scoped to a single repo, so one key can never cover both. The obvious
+"load both keys into `ssh-agent`" does NOT work: SSH offers keys until the server
+accepts one, then GitHub scopes the whole authenticated connection to THAT key's
+repo — so the second submodule clone fails with `ERROR: Repository not found` (a 404
+masking a 403) even though both keys are valid and loaded. It looks like a missing
+repo, not an auth-scoping problem, which sends you down the wrong path. **Rule:** give
+each submodule its own SSH host alias pinned to its key with `IdentitiesOnly yes`, then
+rewrite the submodule URLs to the aliases:
+
+```
+printf 'Host github-ui\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_foundation_ui\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+git config --global url."github-ui:flowolf86/foundation-ui".insteadOf "git@github.com:flowolf86/foundation-ui"
+```
+
+Each app mints its OWN read-only key on foundation-ui (`ssh-keygen` → `gh repo
+deploy-key add <pub> -R flowolf86/foundation-ui -t "<app>-ci"` → store the private
+half as the `FOUNDATION_UI_DEPLOY_KEY` secret; the private key never touches disk
+afterward). The reusable `app-release.yml` already handles the second key via the
+`github-ui` alias — a repo's own `ci.yml` must do the same, or its build job fails
+while release still works, which is baffling until you know this.
+
+## A documented lesson only helps if the repo is wired to surface it
+
+`standards/LESSONS.md` is worthless to a repo that doesn't import it. Every app repo needs
+THREE things or the lessons reach nobody: (1) a top-level `CLAUDE.md` that `@.standards/CONVENTIONS.md`
+and `@.standards/LESSONS.md`, (2) the `.standards/` copies, and (3) the `sync-standards.yml`
+workflow that keeps them current. An app built by hand instead of cloned from an existing app
+gets NONE of this — the lessons are nowhere in its working surface, so the human and Claude both
+re-hit every documented trap from scratch. This is not hypothetical: `nebenkosten-app` shipped
+its first release having re-encountered the read-only-Actions-permissions trap AND the
+foundation deploy-key trap — both already in this file — purely because it had no top-level
+`CLAUDE.md`, no `.standards/`, and no sync workflow. The knowledge existed; the delivery didn't.
+**Rule:** step ONE of bootstrapping a new app repo is wiring standards delivery — copy an
+existing app's `CLAUDE.md` (keep the `@.standards/*` import lines), add `sync-standards.yml`,
+run it once, and confirm the import resolves — before any app code. CI check to make it
+impossible to forget: `grep -q '@.standards/LESSONS.md' CLAUDE.md && test -f .standards/LESSONS.md`.
