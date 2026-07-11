@@ -145,3 +145,54 @@ foundation deploy-key trap — both already in this file — purely because it h
 existing app's `CLAUDE.md` (keep the `@.standards/*` import lines), add `sync-standards.yml`,
 run it once, and confirm the import resolves — before any app code. CI check to make it
 impossible to forget: `grep -q '@.standards/LESSONS.md' CLAUDE.md && test -f .standards/LESSONS.md`.
+
+## The Impressum must be reachable WITHOUT login — a gated Impressum fails its only job
+
+§ 5 TMG/DDG requires the Impressum for *anonymous* visitors — the public, competitors,
+regulators. The foundation app pattern routed `/impressum` through `CurrentUser`, so the
+one audience that legally matters could never see it, and the login card (the only page
+an anonymous visitor reaches) had no Impressum link at all. Found in nebenkosten-app's
+UX audit; every app built from the same pattern likely shares the gap. **Rule:** the
+`/impressum` route takes NO auth dependency (resolve the user best-effort for the shell,
+tolerate `actor=None` — the shell's `actor is defined and actor` guards handle it), and
+the login card carries a small Impressum footer link. Regression test: GET `/impressum`
+returns 200 with all credential resolution forced to 401. When porting, note the FastAPI
+trap that a zero-arg dependency override is required — a `*args` signature is misread as
+request parameters and yields a 422.
+
+## Playwright `color_scheme="dark"` proves nothing for attribute-based theming
+
+The shell applies dark mode via `html[data-theme="dark"]` (user setting), not
+`@media (prefers-color-scheme)`. Emulating the OS preference with Playwright's
+`color_scheme="dark"` therefore renders the LIGHT theme — a whole "dark-mode audit"
+screenshot set was silently identical to the light set and gave false confidence.
+(The same emulation gap also masked the real product bug: theme "System" never resolved
+the OS preference — fixed in foundation-ui #72 by resolving auto via `matchMedia` and
+setting `data-theme` explicitly.) **Rule:** to capture dark mode, set the app's real
+mechanism (`localStorage.theme = "dark"` or stamp `data-theme` before capture), and
+sanity-check that dark captures actually differ from light (byte/hash compare) before
+auditing them.
+
+## Async submit handlers without an in-flight lock create duplicate writes
+
+Every `submit → preventDefault → await POST → location.reload()` handler leaves the
+submit button enabled during the await: a double-click or double-Enter (typical for
+senior users) posts twice and creates duplicate records before the reload lands. In
+nebenkosten-app 21 of 25 forms had this hole. **Rule:** wire async form submits through
+a shared guard that disables the submit buttons on entry and re-enables in `finally`
+(`NBK.guardSubmit(form, handler)` in nebenkosten-app — copy the pattern), and the same
+for async click handlers on destructive/creating buttons. While there: don't
+`toast(...); location.reload()` in the same tick — the reload destroys the toast; delay
+the reload (`toastThenReload`) so success feedback is actually seen.
+
+## Parallel pytest runs against the one shared test Postgres produce phantom failures
+
+Multiple agents/processes running the app test suite concurrently against the single
+`nbk-test-pg` collide on TRUNCATE-based cleanup: tests fail with confusing
+"Eintrag nicht gefunden"/deadlock flavors that look like real regressions, failure
+counts vary per run, and every failing test passes in isolation. This burned significant
+diagnosis time during a multi-agent implementation session. **Rule:** treat the shared
+test DB as a serial resource — one suite run at a time; for parallel agent workflows,
+either stagger test runs or give each worker its own database (CREATE DATABASE per
+worker). Before chasing a "regression" seen only in a parallel run, re-run the full
+suite serially once.
