@@ -196,3 +196,18 @@ test DB as a serial resource — one suite run at a time; for parallel agent wor
 either stagger test runs or give each worker its own database (CREATE DATABASE per
 worker). Before chasing a "regression" seen only in a parallel run, re-run the full
 suite serially once.
+
+## The VPS deploy runs one big SSH command in double quotes — inner strings must be single-quoted
+
+`app-release.yml`'s "Pull image and restart the stack" step wraps the entire remote
+command in ONE double-quoted argument to `ssh` (`ssh root@host "( flock … ) 9>…"`).
+Every string inside that argument must therefore use **single** quotes. A stray inner
+`echo "…"` (introduced by the "make image prune non-fatal" change) closed the outer
+double-quote early, so the runner's *local* bash — not the VPS — then parsed the
+leftover `(daemon busy; …)` and died with `syntax error near unexpected token '('`.
+The build/push jobs are green, only Deploy fails, and the traceback points at a runner
+temp script, so it reads like a runner glitch rather than a quoting bug in the YAML.
+It shipped to `dot-github` master and broke the very next app release (nebenkosten
+v0.22.0). **Rule:** inside that `ssh "…"` block use single quotes for every echo/string,
+and byte-check the assembled command with `bash -n` (GHA expressions stubbed) before
+merging any edit to that step.
