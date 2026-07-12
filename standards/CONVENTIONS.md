@@ -114,6 +114,34 @@ See `beikost-app`, `packliste-app`, `scuba-app`, or `gs-app`'s `module.py` /
 `shell_config.py` for the reference implementation, and `dashboard-app`'s
 `app/routers/registry.py` for the hub-side endpoint contract.
 
+## Working with Claude Code
+
+These rules keep Claude Code productive across the repo family. They exist because
+two failure modes kept recurring.
+
+**Permissions — one wildcarded allowlist, not per-command grants.** Claude was
+re-asking for rights already granted many times. The cause: allow-rules that pin an
+exact command string (e.g. a full `curl … -d '{…}'`) only match that string, so any
+argument change re-prompts; and the allowlist was app-specific and lived only in a
+personal `settings.local.json`, so it never carried between repos. The fix is a
+wildcarded, verb-level allowlist (`Bash(git push:*)`, `Bash(gh pr:*)`,
+`Bash(docker compose:*)`, …) — canonical copy in
+`flowolf86/.github/standards/claude-settings.json`, synced to `.standards/`. It is
+installed globally in `~/.claude/settings.json` (covers every repo at once) and can
+be union-merged into any repo's committed `.claude/settings.json`. Don't ask the
+user to re-grant a verb the profile already covers — install/extend the profile.
+
+**Don't declare defeat on the first failure.** Claude sometimes told the user "I
+can't do X" after a single failed attempt, then did X fine when nudged — wasting
+time and eroding trust. A permission granted earlier in a session persists; a rule
+in `~/.claude/settings.json` persists across sessions. A non-zero exit or empty
+result is usually a fixable problem (wrong dir, missing `git submodule update
+--init`, unset env var), not a wall. **Rule:** read the actual error and retry the
+real operation; prefer running the known-good path yourself over handing the user
+commands to paste; only escalate when you've genuinely hit an auth/secret you don't
+hold or a destructive action that warrants a confirm. State honestly what failed —
+but exhaust the real attempts first.
+
 ## Code style
 
 - All code, comments, and identifiers are **English**, even where UI content is
