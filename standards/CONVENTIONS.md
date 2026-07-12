@@ -12,15 +12,24 @@ including newly created ones. If a repo gets created with `main`, rename it to
 `master` immediately (`gh api -X POST repos/<owner>/<repo>/branches/main/rename
 -f new_name=master`) and point any submodule `branch =` refs at `master`.
 
-**Branch → implement (+ tests) → version bump if user-facing → rebase → PR → CI green → squash merge → release**
+**Branch → implement (+ tests) → version bump if user-facing → rebase → run tests locally (green) → PR → CI green → squash merge → release**
 
 1. Create a branch. Never commit on `master`, never push directly to `master`.
 2. Implement the change with tests.
 3. Bump the version if the change is user-facing (apps only — see Versioning).
 4. `git fetch origin && git rebase origin/master`.
-5. **Ask before opening the PR.** Then `gh pr create`.
-6. Wait for CI to go green, then `gh pr merge --squash --delete-branch`.
-7. If a version was bumped, cut the release (see Versioning).
+5. **Run the full test suite locally and make it green BEFORE you push or open the
+   PR — every single time, no exceptions.** CI is never your first test run.
+   Pushing to a branch or opening a PR triggers CI, and CI is a shared,
+   budget-capped resource (monthly Actions budget — see LESSONS). Burning CI
+   minutes on a change you haven't run locally is wasteful and forbidden. If the
+   local suite genuinely cannot run (e.g. no PostgreSQL / submodule available in
+   the environment), run every check that *can* run locally, then say so
+   explicitly in the PR and to the human before pushing — do not silently let CI
+   be the first run.
+6. **Ask before opening the PR.** Then `gh pr create` (only once local is green).
+7. Wait for CI to go green, then `gh pr merge --squash --delete-branch`.
+8. If a version was bumped, cut the release (see Versioning).
 
 **Squash-only merges.** `--merge` and `--rebase` are not used. On paid plans this
 is enforced server-side by a ruleset; on free-tier private repos it can't be
@@ -50,8 +59,16 @@ pulling latest `master` on the VPS.
   `AmbiguousColumnError`.
 - CI gates every PR. For apps the gate is four jobs (test, lint/mypy, quality
   /coverage, e2e/Playwright); coverage has a `--cov-fail-under` floor.
-- Run the suite locally before merging when Actions budget is exhausted (see
-  LESSONS — budget resets monthly).
+- **Always run the full test suite locally and get it green BEFORE pushing or
+  opening a PR — every time, not just when the Actions budget is low.** Local-green
+  is a *precondition* for triggering CI, never a fallback. CI is a shared,
+  budget-capped resource (see LESSONS — budget resets monthly); using a push/PR as
+  your first test run wastes it and can leave the team unable to merge for the rest
+  of the month. Run `make test` / `pytest -q` (and lint/mypy) locally first; only
+  push once it passes.
+- If the environment cannot run the full suite (no PostgreSQL, missing submodule,
+  etc.), run every check that *can* run locally and state clearly what was and was
+  not verified — do not let CI be the first time the change is exercised.
 
 ## Configuration & secrets
 
