@@ -12,6 +12,14 @@
 # Callers pass their app name; the DB user/name, image tag, and DSNs derive from
 # it. Call with `secrets: inherit` so FOUNDATION_DEPLOY_KEY reaches the submodule
 # fetch. Source of truth lives in flowolf86/.github — edit here, not per repo.
+#
+# Actions-minutes hygiene (all apps merge via squash PR, so the PR run is the
+# real gate):
+#   * push→master runs are no-ops — every job is gated `event_name != 'push'`,
+#     so the merge doesn't re-test code the PR just certified green.
+#   * superseded PR commits are cancelled (concurrency, below).
+#   * e2e (the single most expensive job) only runs when app/runtime code
+#     actually changed — a docs/i18n/config-only PR skips the 6-min browser run.
 name: app-ci
 
 on:
@@ -48,9 +56,20 @@ on:
         description: "Read-only deploy key for the private foundation-ui submodule (optional; apps that vendor it)."
         required: false
 
+# Cancel a running CI when a newer commit lands on the same ref (PR branch).
+# github.ref is the caller's ref, so pushing 3 commits to a PR no longer runs
+# 3 full CIs to completion — the first two are cancelled the moment the next
+# arrives. cancel-in-progress is safe here: CI has no deploy/publish side effects.
+concurrency:
+  group: app-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Build image & run pytest on PostgreSQL
+    # No-op on push→master: the squash-merged code already passed this exact gate
+    # on the PR. Re-running it burns minutes to test nothing new.
+    if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10  # hard backstop so a hung job can't burn Actions minutes
     services:
@@ -113,6 +132,7 @@ jobs:
 
   lint:
     name: Type check (mypy)
+    if: ${{ github.event_name != 'push' }}  # PR is the gate; skip the redundant master re-run
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -157,6 +177,7 @@ jobs:
 
   quality:
     name: Migration smoke test & coverage
+    if: ${{ github.event_name != 'push' }}  # PR is the gate; skip the redundant master re-run
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -226,9 +247,45 @@ jobs:
           python -m pytest tests/ -q --no-header --tb=short \
             --cov=. --cov-report=term-missing --cov-fail-under=${{ inputs.coverage_threshold }}
 
+  # Cheap gate for the expensive e2e job: was any app/runtime code touched? A
+  # docs-, i18n-, or CI-config-only PR doesn't need a 6-minute browser run.
+  # PR-only — on workflow_dispatch we force e2e on (below) without a diff base.
+  detect:
+    name: Detect app-code changes
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # Anything that can change runtime behaviour the browser exercises.
+          # Deliberately generous — a false "changed" only costs a run; a false
+          # "unchanged" would skip real coverage.
+          filters: |
+            app:
+              - 'app/**'
+              - 'packages/**'
+              - 'Dockerfile'
+              - 'docker-compose*.yml'
+              - 'pytest-e2e.ini'
+
   e2e:
     name: E2E Tests (Playwright)
-    if: ${{ inputs.run_e2e }}
+    needs: detect
+    # always() so a skipped `detect` (workflow_dispatch) doesn't auto-skip e2e.
+    # Runs when: e2e enabled AND (manual dispatch OR a PR that touched app code).
+    # push→master → none of the branches match → skipped (no redundant re-run).
+    if: >-
+      ${{ always() && inputs.run_e2e && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' && needs.detect.outputs.app == 'true')
+      ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10  # hard backstop; a hung browser test can't burn the budget
     services:
