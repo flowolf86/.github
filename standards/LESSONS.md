@@ -211,3 +211,36 @@ It shipped to `dot-github` master and broke the very next app release (nebenkost
 v0.22.0). **Rule:** inside that `ssh "…"` block use single quotes for every echo/string,
 and byte-check the assembled command with `bash -n` (GHA expressions stubbed) before
 merging any edit to that step.
+
+## Tests anchored to the wall-clock date rot silently
+
+Tests that hardcode dates near "today" (a due date, a billing period, an intake
+week, a maintenance interval) pass when written and start failing weeks later as
+real time drifts past the baked-in assumption — a green suite that quietly turns
+red on a calendar boundary, not a code change. It bites every app with
+time-relative logic (beikost intake weeks, scuba dive dates, gs service
+intervals, nebenkosten billing periods). **Rule:** anchor time-based test data to
+`date.today()`/`datetime.now()` (offset from it), never to literals; check BOTH
+`app/tests` (unit) and `app/e2e` — they rot independently — and prove it by
+freezing "today" on both sides so a future date can't change the outcome.
+
+## StaticFiles 404s on symlinks that escape the mounted directory
+
+Serving the shared foundation-ui shell bundle by symlinking it into the app's
+static mount works in some setups but 404s under uvicorn/Starlette `StaticFiles`
+when the symlink target resolves *outside* the mounted directory — the resolved
+path fails the "is this within the mount root" containment check, so the asset
+vanishes only in the real server (and e2e), not in whatever dev shortcut was used.
+**Rule:** don't symlink cross-package static into the mount — **copy** the shell
+bundle into the served directory (a build/Docker step), and treat the copied files
+as build output, not source.
+
+## Concurrent VPS deploys collide on the shared docker prune, not the deploy
+
+All apps deploy to one VPS. Releasing several at once serialises the deploy itself
+via the host `flock`, but `docker image prune` holds its own global daemon lock
+that lingers briefly after the flock releases, so a second deploy's prune can fail
+even though its deploy succeeded. The release looks failed when only cleanup was
+skipped. **Rule:** keep the prune step non-fatal (`|| echo skipped`) — stale
+images get cleaned on the next deploy; re-run the (idempotent) deploy or stagger
+releases rather than chasing a "failed" deploy that actually shipped.
