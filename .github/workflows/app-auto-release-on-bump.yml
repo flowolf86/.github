@@ -1,0 +1,70 @@
+# Reusable "auto-release when foundation was bumped" for Foundation-based apps.
+#
+# When app-bump-foundation.yml (or a human) lands a "Bump foundation submodule to
+# vX.Y.Z" commit on master, this workflow bumps the app's own patch version and
+# cuts a GitHub Release — which in turn triggers app-release.yml → GHCR → VPS.
+#
+#   master push whose subject matches "^Bump foundation submodule to v"
+#     → bump app/pyproject.toml patch  → commit  → gh release create vX.Y.(Z+1)
+#
+# Callers add a thin wrapper triggered on push→master and pass `app_name`;
+# secrets flow via `secrets: inherit`. Source of truth lives in flowolf86/.github.
+name: app-auto-release-on-bump
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "App slug, used only in commit/release note text (e.g. packliste)."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release if this is a foundation bump commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check if this is a foundation bump commit
+        id: check
+        run: |
+          msg=$(git log -1 --format=%s)
+          if echo "$msg" | grep -qE '^Bump foundation submodule to v'; then
+            foundation_tag=$(echo "$msg" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            echo "is_bump=true" >> "$GITHUB_OUTPUT"
+            echo "foundation_tag=$foundation_tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_bump=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump ${{ inputs.app_name }} patch version
+        id: ver
+        if: steps.check.outputs.is_bump == 'true'
+        run: |
+          curr=$(grep '^version = ' app/pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          IFS='.' read -r major minor patch <<< "$curr"
+          new="$major.$minor.$((patch + 1))"
+          sed -i "s/^version = \"$curr\"/version = \"$new\"/" app/pyproject.toml
+          echo "tag=v$new" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        if: steps.check.outputs.is_bump == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/pyproject.toml
+          git commit -m "chore: bump to ${{ steps.ver.outputs.tag }} (foundation ${{ steps.check.outputs.foundation_tag }})"
+          git push
+
+      - name: Create GitHub release
+        if: steps.check.outputs.is_bump == 'true'
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --notes "Foundation updated to ${{ steps.check.outputs.foundation_tag }}."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
