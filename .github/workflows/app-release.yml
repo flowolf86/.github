@@ -233,10 +233,13 @@ jobs:
       # Serialise deploys host-wide with flock. All apps share this one VPS, so
       # two release jobs firing at once make concurrent `docker compose pull`s
       # collide in the containerd content store (`failed to lease content` /
-      # `content digest not found`) and `docker image prune` collide (`a prune
-      # operation is already running`). GitHub `concurrency:` groups can't span
+      # `content digest not found`). GitHub `concurrency:` groups can't span
       # separate repos, so we take a host-level lock (fd 9) that every app's
       # deploy contends on — later deploys wait up to 10 min instead of racing.
+      # `docker image prune` has its own global daemon lock that persists briefly
+      # even after the flock is released (the Docker daemon finishes asynchronously),
+      # so the prune step is non-fatal — a skipped prune just means stale images
+      # linger until the next deploy cleans them up.
       - name: Pull image and restart the stack
         run: |
           ssh -i ~/.ssh/id_vps root@${{ secrets.VPS_HOST }} \
@@ -247,6 +250,6 @@ jobs:
              && docker compose -f docker-compose.yml -f docker-compose.prod.yml pull \
              && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d \
              && docker logout ghcr.io \
-             && docker image prune -f \
+             && ( docker image prune -f || echo "image prune skipped (daemon busy; stale images will be cleaned on next deploy)" ) \
              && docker ps --format 'table {{.Names}}\t{{.Status}}' \
              ) 9>/var/lock/wolf-labs-deploy.lock"
