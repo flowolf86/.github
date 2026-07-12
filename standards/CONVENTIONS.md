@@ -91,7 +91,13 @@ an afterthought:
 
 1. In `shell_config.py`, give `Brand(...)` its `accent`, `status`
    (`"live"`/`"beta"`), `description`, and `tags` — these render the app's
-   product card on the hub.
+   product card on the hub. **Provide bilingual card copy even for a
+   German-only app:** the hub itself is multilingual, so the base
+   `description`/`tags` (German default) must be paired with an English
+   override via `i18n={"en": CardTranslation(description=..., tags=...)}`.
+   Then send it: `module.py`'s manifest must include
+   `"i18n": brand.hub_i18n()` (not just `description`) or the English card
+   silently falls back to German on the hub.
 2. In `module.py`'s `startup()`, call `foundation.registry.announce_once()` once
    and `start_heartbeat()` for periodic re-announcement (call
    `stop_heartbeat()` in `shutdown()`); build the manifest from `CONFIG.brand`
