@@ -12,3 +12,4 @@ change the source in that repo and let the bot PR the update.
 
 @.standards/CONVENTIONS.md
 @.standards/LESSONS.md
+@.standards/I18N.md
