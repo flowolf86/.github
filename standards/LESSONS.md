@@ -69,6 +69,15 @@ After commits, a local linter may reset working-tree files to the last committed
 state. The remote branch always has the correct content. **Workaround:**
 `git stash` before branch switches; verify with `git show origin/<branch>:<file>`.
 
+It can go further than the working tree: observed in dashboard-app doing a *soft*
+`git reset` that moved local `HEAD` back one commit and re-staged the just-committed
+changes, so `git rev-parse HEAD` no longer matched `origin/<branch>` even though the
+push had succeeded and the PR was correct. This reads like the commit vanished. Don't
+re-commit or panic — the pushed commit is intact. **Rule:** after a push, if local
+state looks scrambled, trust the remote: verify the branch with
+`git show origin/<branch>:<file>` / `gh pr diff`, then realign local with
+`git reset --hard origin/<branch>` rather than reconstructing the change.
+
 ## e2e: `wait_for_url("**/")` misses the post-create redirect
 
 After creating an entity the server redirects to `/?<param>=<id>`, not bare `/`,
@@ -244,3 +253,51 @@ even though its deploy succeeded. The release looks failed when only cleanup was
 skipped. **Rule:** keep the prune step non-fatal (`|| echo skipped`) — stale
 images get cleaned on the next deploy; re-run the (idempotent) deploy or stagger
 releases rather than chasing a "failed" deploy that actually shipped.
+
+## Changing a CSS variable's VALUE does nothing if no rule consumes it
+
+dashboard-app shipped a "new body typeface" (Hanken Grotesque) that looked
+byte-identical before and after — because the change only reassigned the `--body`
+custom property on `body.hub`, and *nothing* applied `font-family: var(--body)` to
+the body element. The hub replaces the shell chrome wholesale, and the shell only
+consumes `--body` on its own components, so the hub's running text inherited no
+font-family and silently fell back to the UA default serif. The @font-face even
+loaded fine (200, `font/woff2`) — a loaded font and a defined token both looked
+like success while the text rendered in Times. A token swap is not a visible change:
+it needs a *consumer*. **Rule:** when a design-token change is supposed to alter the
+UI, verify the **rendered result** (screenshot / `getComputedStyle`), not that you
+edited the token — and confirm some rule actually reads the token on the element you
+care about. Tell: a font stack ending in `sans-serif` that renders as serif means
+`font-family` is unset on that element, not that the webfont failed (a set stack
+would fall back to sans, never Times). Sibling of the `color_scheme="dark"` proves-
+nothing trap: assert the real mechanism, not a proxy.
+
+## Prior Docker builds leave root-owned artifacts that block local editable installs
+
+An app that vendors `foundation`/`foundation-ui` as submodules and has been built
+with Docker at some point can carry root-owned `build/` and `*.egg-info/` directories
+inside those submodules (Docker's build user wrote them). A later `uv pip install -e`
+/ `pip install -e` then fails with the cryptic `error: Cannot update time stamp of
+directory '<pkg>.egg-info'` — setuptools can't rewrite the root-owned egg-info, and
+the message names a timestamp, not a permission, so it reads like a tooling bug. It
+blocks every local test run (no editable install → `ModuleNotFoundError: foundation`),
+which is why the suite silently becomes "CI-only". **Rule:** if an editable install
+fails on egg-info/build timestamps, check ownership (`ls -ld packages/*/build
+packages/*/*.egg-info`); clear the stale root-owned artifacts (`sudo rm -rf` — they're
+regenerated build output, never source) before diagnosing further. Passwordless sudo
+usually isn't available to the agent, so hand the one-liner to the human once and
+verify it took.
+
+## After every task, capture the lesson — auto-PR-and-merge it, don't ask
+
+Lessons are worthless if they're never written down, and asking "shall I record
+this?" after every task adds friction that means they mostly aren't. **Rule (standing
+authorization):** at the end of every task, evaluate whether a genuinely reusable
+trap/insight emerged (something non-obvious that cost time or would bite again). If
+so, add it to the canonical `flowolf86/.github/standards/LESSONS.md` — **the source,
+never a repo's `.standards/` copy** — as one tight entry (trap / why it bites / rule),
+then open the PR **and squash-merge it automatically**, without pausing to ask. This
+is an explicit override of the usual "ask before opening the PR" ceremony, scoped to
+lessons-learned updates only. Skip when nothing rises above the bar (don't manufacture
+filler) or when it duplicates an existing entry (augment that one instead). Keep it
+one-entry-per-trap and quality-gated — the value is in the signal, not the volume.
