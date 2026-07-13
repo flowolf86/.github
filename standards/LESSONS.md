@@ -14,7 +14,9 @@ against SQLite so it can't sneak back in.
 
 ## The reverse proxy silently swallows `/api/auth/*`
 
-The reverse proxy (Caddy on packliste, Traefik on beikost) routes `/api/auth/*`
+The reverse proxy (Traefik on every app — packliste's own
+`docker-compose.prod.yml` uses Traefik labels + the `letsencrypt` resolver, not
+Caddy as earlier notes claimed) routes `/api/auth/*`
 to the Better Auth Node sidecar (port 3000). Any FastAPI route whose path starts
 with `/api/auth/` is silently swallowed in production and never reaches Python —
 it works locally without the proxy, then vanishes in prod. **Rule:** keep FastAPI

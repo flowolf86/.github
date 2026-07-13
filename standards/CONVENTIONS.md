@@ -195,10 +195,43 @@ This is enforced by convention and by the PR checklist item ("README verified
 correct"), the same way squash-only and no-direct-push are. Reviewers (and the
 PR author) tick it only after actually re-reading the affected README sections.
 
+## Language (code and comments are English)
+
+**All code and comments are written in English**, in every repo, even though the
+product UI is German. This keeps the codebase readable to any contributor (human
+or Claude), makes symbols greppable across the family, and stops German and English
+identifiers from mixing inside one function. Concretely, English is required for:
+
+- identifiers — variables, functions, classes, methods, modules, files, fixtures;
+- comments and docstrings;
+- commit messages, PR titles/bodies, branch names, and log messages;
+- test names and assertion messages;
+- documentation (`README.md`, `CLAUDE.md`, code-level docs).
+
+**The narrow exception is highly specific wording that has no faithful English
+equivalent** — keep the German term where translating it would lose meaning or
+break a contract:
+
+- **User-facing strings / i18n catalogues** — German UI copy is content, not code,
+  and lives in the locale files (see `I18N.md`).
+- **Stored DB slugs and enum keys** — German slugs are persisted keys; they are
+  data, never renamed (a rename is a migration, not a translation).
+- **Domain and legal terms of art** — e.g. `Nebenkosten`, `Grundsteuer`,
+  `Impressum`, `Betriebskostenabrechnung`, `Hausgeld`. These are the real names of
+  the concepts; keep them verbatim (optionally with a one-line English gloss in a
+  comment on first use) rather than inventing an English approximation.
+- **External API field names** — third-party payloads (e.g. BMW CarData) are used
+  as given.
+
+When in doubt, default to English; reach for the German term only when it is a
+proper noun of the domain or a persisted key. New code follows this from the first
+line; existing non-English code is converted opportunistically and tracked in
+[`ROADMAP.md`](../ROADMAP.md).
+
 ## Code style
 
-- All code, comments, and identifiers are **English**, even where UI content is
-  German. Stored DB slugs (German) are keys and must never be renamed.
+- Code and comments are **English** — see **Language** above; the only carve-outs
+  are domain/legal terms of art, persisted DB slugs, and German UI strings.
 - Keep `CLAUDE.md` and these standards current when architecture or conventions
   change — update the source in `flowolf86/.github`, not the synced copy.
 - Keep `README.md` correct in the same PR as the change it describes — see
