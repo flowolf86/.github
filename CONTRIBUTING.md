@@ -34,3 +34,6 @@ curl -fsSL https://raw.githubusercontent.com/flowolf86/.github/master/githooks/i
 - Tests pass locally (`make test` or `pytest -q`).
 - No secrets staged (`.env`, `*.key`, `acme.json` are git-ignored — keep it so).
 - For user-facing app changes, the version in `app/pyproject.toml` is bumped.
+- `README.md` is still correct for anything the change touches — commands, paths,
+  env vars, features, structure (see
+  [README correctness](./standards/CONVENTIONS.md#documentation-readme-correctness)).

@@ -15,17 +15,29 @@ app repos without any cross-repo access setup. It contains no secrets.
 | `.github/workflows/app-release.yml` | Reusable release → GHCR build + VPS deploy | `uses:` |
 | `.github/workflows/app-bump-foundation.yml` | Reusable foundation-submodule bump-to-tag PR | `uses:` |
 | `.github/workflows/pull-standards.yml` | Reusable: each repo pulls `standards/` into its `.standards/` & opens a PR (token-free, built-in GITHUB_TOKEN) | `uses:` from each repo |
-| `standards/CONVENTIONS.md`, `LESSONS.md` | The human + AI-agent rules and traps | synced → each repo's `.standards/`, `@import`ed by `CLAUDE.md` |
+| `standards/CONVENTIONS.md`, `LESSONS.md`, `I18N.md` | The human + AI-agent working rules, hard-won traps, and i18n rules | synced → each repo's `.standards/`, `@import`ed by `CLAUDE.md` |
 | `standards/CLAUDE.snippet.md` | Block to paste into each repo's `CLAUDE.md` | manual, once |
 | `CONTRIBUTING.md`, `CODEOWNERS`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/ISSUE_TEMPLATE/*` | Default community-health files | auto-applied by GitHub to all repos |
 | `rulesets/app-master.json` + `apply-rulesets.sh` | Server-side branch protection (Pro) | run the script |
 | `githooks/pre-push` + `install.sh` | Client-side no-push-to-master (works on Free) | run per clone |
 
+## Standards
+
+The working rules every repo (and Claude Code) follows live under `standards/`:
+
+- [`CONVENTIONS.md`](./standards/CONVENTIONS.md) — branching/PR ceremony, versioning,
+  testing, configuration, hub self-registration, and
+  [README correctness](./standards/CONVENTIONS.md#documentation-readme-correctness)
+  (READMEs are kept accurate in the same PR as the change they describe).
+- [`LESSONS.md`](./standards/LESSONS.md) — production traps, appended once each.
+- [`I18N.md`](./standards/I18N.md) — internationalisation rules for the German UI.
+
 ## Which repos use what
 
-- **beikost-app, packliste-app** — call all three reusable workflows + standards + hooks.
-- **foundation-api-engine** — keeps its own CI (it *is* the engine, no submodule);
-  adopts community-health + standards + hooks.
+- **wolf-labs apps** (beikost-app, packliste-app, scuba-app, gs-app,
+  nebenkosten-app, dashboard-app) — call all reusable workflows + standards + hooks.
+- **foundation-api-engine, foundation-ui** — shared submodules with their own CI;
+  adopt community-health + standards + hooks.
 - **labs-infra** — keeps its lighter CI; adopts community-health + standards + hooks.
 
 ## Plan portability
