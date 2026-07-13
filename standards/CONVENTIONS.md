@@ -59,6 +59,14 @@ pulling latest `master` on the VPS.
   `AmbiguousColumnError`.
 - CI gates every PR. For apps the gate is four jobs (test, lint/mypy, quality
   /coverage, e2e/Playwright); coverage has a `--cov-fail-under` floor.
+- **Every toggleable feature is tested in BOTH states — on AND off.** Any
+  runtime flag, admin control, or feature switch must have tests proving the
+  behaviour with the toggle *on* and with it *off* (and, where it matters, the
+  default/unset state). A test that only exercises the "on" path lets the "off"
+  path rot — a control that silently does nothing when disabled, or a feature
+  that leaks when it should be dark, is exactly the bug the toggle exists to
+  prevent. This applies to app-declared controls (hub control station), platform
+  flags (maintenance, family switcher), and any per-app feature gate.
 - **Always run the full test suite locally and get it green BEFORE pushing or
   opening a PR — every time, not just when the Actions budget is low.** Local-green
   is a *precondition* for triggering CI, never a fallback. CI is a shared,
