@@ -12,6 +12,15 @@ including newly created ones. If a repo gets created with `main`, rename it to
 `master` immediately (`gh api -X POST repos/<owner>/<repo>/branches/main/rename
 -f new_name=master`) and point any submodule `branch =` refs at `master`.
 
+**Branch naming:** prefix branches with a type that describes the work, followed by a short slug:
+- `feature/<slug>` — new functionality
+- `bugfix/<slug>` — bug fix on a non-production branch
+- `hotfix/<slug>` — urgent fix against a release/production branch
+- `chore/<slug>` — tooling, CI, dependencies, no user-facing change
+- `refactor/<slug>` — restructuring without behaviour change
+
+Never use tool-name prefixes (e.g. `claude/`) — branch names describe the *work*, not the tool that created them.
+
 **Branch → implement (+ tests) → version bump if user-facing → rebase → run tests locally (green) → PR → CI green → squash merge → release**
 
 1. Create a branch. Never commit on `master`, never push directly to `master`.
