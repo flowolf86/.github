@@ -37,7 +37,7 @@ jobs:
         run: |
           mkdir -p .standards
           base="https://raw.githubusercontent.com/flowolf86/.github/master/standards"
-          for f in CONVENTIONS.md LESSONS.md claude-settings.json; do
+          for f in CONVENTIONS.md LESSONS.md I18N.md claude-settings.json; do
             curl -fsSL "$base/$f" -o ".standards/$f"
           done
 
@@ -53,7 +53,7 @@ jobs:
             Automated pull of the canonical standards from
             [`flowolf86/.github`](https://github.com/flowolf86/.github/tree/master/standards).
 
-            Updates `.standards/CONVENTIONS.md` and `.standards/LESSONS.md` — the
+            Updates `.standards/CONVENTIONS.md`, `.standards/LESSONS.md`, and `.standards/I18N.md` — the
             files this repo's `CLAUDE.md` imports — plus `.standards/claude-settings.json`,
             the canonical Claude Code permission allowlist (consumed by the
             `install_permissions.py` helper). Edit the source in the hub, not these

@@ -301,3 +301,18 @@ is an explicit override of the usual "ask before opening the PR" ceremony, scope
 lessons-learned updates only. Skip when nothing rises above the bar (don't manufacture
 filler) or when it duplicates an existing entry (augment that one instead). Keep it
 one-entry-per-trap and quality-gated — the value is in the signal, not the volume.
+
+## The GitHub file-write API silently rewrites U+201D to ASCII quote -- keep pushed code pure-ASCII
+
+Writing a file through the GitHub content API (the `create_or_update_file` MCP tool, and the web
+editor's paste path) silently rewrites the typographic RIGHT DOUBLE QUOTATION MARK (U+201D) to an
+ASCII double quote on the round-trip. In prose that is invisible; in a JS/JSON/Python string it is
+catastrophic -- the ASCII quote terminates the string early, so a locale catalogue that parsed and
+ran locally ships a `SyntaxError` that breaks the whole UI. It cost a full debugging loop on
+nebenkosten-app's `locales.js` (a German closing quote right after an interpolation placeholder),
+and it is invisible in the PR diff because the two glyphs look identical. **Rule:** never put a
+literal delimiter-confusable smart quote (U+2018/2019/201C/201D/201E) in source pushed through the
+API -- write it as a `\uXXXX` escape (identical at runtime, pure ASCII on the wire). This is the
+machine-checked half of the i18n standard (`standards/I18N.md`), enforced suite-wide by the locale
+gate (`foundation.testing.locale_gate`). For any file pushed via the API, prefer pure-ASCII source;
+after pushing a file that must carry non-ASCII, fetch it back and byte-compare before trusting it.
