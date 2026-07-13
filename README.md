@@ -26,11 +26,15 @@ app repos without any cross-repo access setup. It contains no secrets.
 The working rules every repo (and Claude Code) follows live under `standards/`:
 
 - [`CONVENTIONS.md`](./standards/CONVENTIONS.md) — branching/PR ceremony, versioning,
-  testing, configuration, hub self-registration, and
-  [README correctness](./standards/CONVENTIONS.md#documentation-readme-correctness)
+  testing, configuration, hub self-registration,
+  [English-only code and comments](./standards/CONVENTIONS.md#language-code-and-comments-are-english),
+  and [README correctness](./standards/CONVENTIONS.md#documentation-readme-correctness)
   (READMEs are kept accurate in the same PR as the change they describe).
 - [`LESSONS.md`](./standards/LESSONS.md) — production traps, appended once each.
 - [`I18N.md`](./standards/I18N.md) — internationalisation rules for the German UI.
+
+Cross-repo initiatives (like the English-code conversion sweep) are tracked in
+[`ROADMAP.md`](./ROADMAP.md).
 
 ## Which repos use what
 
