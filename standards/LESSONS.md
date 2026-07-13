@@ -316,3 +316,19 @@ API -- write it as a `\uXXXX` escape (identical at runtime, pure ASCII on the wi
 machine-checked half of the i18n standard (`standards/I18N.md`), enforced suite-wide by the locale
 gate (`foundation.testing.locale_gate`). For any file pushed via the API, prefer pure-ASCII source;
 after pushing a file that must carry non-ASCII, fetch it back and byte-compare before trusting it.
+
+## foundation-ui's gate audit JS isn't in package-data — a non-editable install drops it
+
+`foundation-ui` ships the CI gate audit scripts at `foundation_ui/testing/*_audit.js`
+(geometry/motion/field/contrast/focus), but its `[tool.setuptools.package-data]` only globs
+`templates/…` and `static/shell/…` — the `testing/*.js` files are **not declared**. A
+**non-editable** `pip install ./packages/foundation-ui` (or a wheel) therefore silently omits
+them, and an app's Playwright/gate suite then fails at *collection* with
+`FileNotFoundError: …/foundation_ui/testing/<x>_audit.js` — which reads like a broken test,
+not a packaging gap. It bit all five apps during the foundation v0.10.0 pin rollout. The reusable
+`app-ci.yml` installs foundation-ui **editable** (`pip install -e packages/foundation-ui`), so the
+resource resolves from the source tree and CI is green — which masks the gap until someone runs a
+non-editable local install (the natural choice for a "clean copy" test harness). **Rule:** install
+`foundation-ui` **editable** (`-e`) anywhere you run an app's e2e/gate suite locally, mirroring CI;
+and the real fix is to add `"testing/*.js"` (and any other runtime-loaded non-Python assets under
+`foundation_ui/`) to foundation-ui's `package-data` so a wheel/non-editable install is self-contained.
