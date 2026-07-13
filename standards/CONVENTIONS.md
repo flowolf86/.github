@@ -25,7 +25,9 @@ Never use tool-name prefixes (e.g. `claude/`) — branch names describe the *wor
 
 1. Create a branch. Never commit on `master`, never push directly to `master`.
 2. Implement the change with tests.
-3. Bump the version if the change is user-facing (apps only — see Versioning).
+3. Bump the version if the change is user-facing (apps only — see Versioning),
+   and update `README.md` for anything the change touched (see Documentation
+   — README correctness).
 4. `git fetch origin && git rebase origin/master`.
 5. **Run the full test suite locally and make it green BEFORE you push or open the
    PR — every single time, no exceptions.** CI is never your first test run.
@@ -159,9 +161,45 @@ commands to paste; only escalate when you've genuinely hit an auth/secret you do
 hold or a destructive action that warrants a confirm. State honestly what failed —
 but exhaust the real attempts first.
 
+## Documentation (README correctness)
+
+Every repo's `README.md` is treated as **part of the change surface, not an
+afterthought**. A README that lies — a stale version, a command that no longer
+exists, a path that moved, an env var that was renamed, a feature that shipped or
+was dropped — is worse than no README: it sends the next reader (human or Claude)
+down a dead end and quietly erodes trust in all the docs.
+
+**Rule:** before opening a PR, verify the README still matches reality for
+anything the change touched, and fix it in the same PR. Concretely, a PR that
+changes any of the following must update the README in lockstep:
+
+- **Features / behaviour** — user-visible capabilities added, removed, or changed.
+- **Setup or run commands** — install steps, `make` targets, dev-server command,
+  ports, prerequisites (Python version, PostgreSQL, submodules).
+- **Project structure** — top-level directories or entry points that the README's
+  structure tree names.
+- **Configuration** — env vars (added/renamed/removed), secrets, `.env.example`.
+- **Deployment** — service name, DB name, image, or release flow.
+- **Versioning** — a pinned version number the README asserts (prefer prose like
+  "see `pyproject.toml`" over a hardcoded number that rots).
+
+Correctness bar — every claim in a README must be checkable against the repo:
+every command runs, every path exists, every env var is real, every version is
+current. Don't guess or copy from a sibling app without verifying — the apps
+differ. All wolf-labs READMEs follow one shared structure (title / tagline /
+overview / family line → Features → Tech stack → Getting started → Testing →
+Structure → Configuration → Deployment → Contributing → License); keep new/edited
+READMEs in that shape so the family reads as one project.
+
+This is enforced by convention and by the PR checklist item ("README verified
+correct"), the same way squash-only and no-direct-push are. Reviewers (and the
+PR author) tick it only after actually re-reading the affected README sections.
+
 ## Code style
 
 - All code, comments, and identifiers are **English**, even where UI content is
   German. Stored DB slugs (German) are keys and must never be renamed.
 - Keep `CLAUDE.md` and these standards current when architecture or conventions
   change — update the source in `flowolf86/.github`, not the synced copy.
+- Keep `README.md` correct in the same PR as the change it describes — see
+  **Documentation (README correctness)** above.
