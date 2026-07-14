@@ -24,20 +24,20 @@ apps so shared symbols settle first.
 ### Progress
 
 Shared packages (do first):
-- [ ] foundation-api-engine
-- [ ] foundation-ui
+- [x] foundation-api-engine — audited clean 2026-07-14 (only a bilingual maintenance splash, already has EN)
+- [x] foundation-ui — audited clean 2026-07-14 (i18n.js catalogue + 1 DE test fixture are carve-outs)
 
 Apps:
-- [ ] beikost-app
-- [ ] packliste-app
-- [ ] scuba-app
-- [ ] gs-app
-- [ ] nebenkosten-app
-- [ ] dashboard-app
+- [x] beikost-app — audited clean 2026-07-14 (only test comments quoting German UI strings)
+- [x] packliste-app — audited clean 2026-07-14 (only test comments quoting German UI strings)
+- [x] scuba-app — audited clean 2026-07-14 (one optional e2e stress-string value)
+- [x] gs-app — audited clean 2026-07-14 (`Motorrad` = BMW brand / CarData API carve-out)
+- [ ] nebenkosten-app — in progress (full anglicisation; pervasive German domain model)
+- [x] dashboard-app — audited clean 2026-07-14 (registry/admin German UI assertions are content)
 
 Infra / governance:
-- [ ] labs-infra
-- [ ] dot-github (this repo)
+- [x] labs-infra — audited clean 2026-07-14
+- [x] dot-github (this repo) — audited clean 2026-07-14 (one DE error-string quoted as an example in LESSONS)
 
 **Not in scope:** German user-facing copy (locale files, template strings),
 persisted German DB slugs/enum keys, domain/legal terms of art, and third-party API
