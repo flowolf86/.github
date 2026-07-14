@@ -32,7 +32,7 @@ Apps:
 - [x] packliste-app — audited clean 2026-07-14 (only test comments quoting German UI strings)
 - [x] scuba-app — audited clean 2026-07-14 (one optional e2e stress-string value)
 - [x] gs-app — audited clean 2026-07-14 (`Motorrad` = BMW brand / CarData API carve-out)
-- [ ] nebenkosten-app — in progress (full anglicisation; pervasive German domain model)
+- [ ] nebenkosten-app — in progress. Phase 1 (all German code comments/docstrings → English) done 2026-07-14 (comments-only, AST-verified). Phases 2-5 (class/column/function/wire-key/template/test renames) pending a Postgres/Docker-capable environment — the DB-integration suite can't run in the current dev env, and the safety model requires it green between phases. Deploy needs a verified prod pg_dump first (nebenkosten is not in the daily backup set).
 - [x] dashboard-app — audited clean 2026-07-14 (registry/admin German UI assertions are content)
 
 Infra / governance:
