@@ -374,8 +374,11 @@ test errors with a `Settings` `database_url ... Field required` **validation** e
 like a broken install rather than a missing ini. (Same family as the editable-install trap
 above: an agent without a venv hits both back to back and concludes the suite is CI-only.)
 
-**Rule:** run the app suite from the app directory (`cd app && pytest -q`), never from the repo
-root. If admin/registry tests 403 while the rest pass, check `pwd` before you debug auth — and
+**Rule:** run the **unit** suite from the app directory (`cd app && pytest -q`), never from the
+repo root. (The **e2e** suite is the exception and runs from the root against `pytest-e2e.ini` —
+its conftest hard-sets `PUBLIC_BASE_URL`/`ADMIN_EMAIL`/`SESSION_SECRET` as real env vars, which
+outrank any `.env`, so it is immune. Don't "fix" it by moving it into `app/`.)
+If admin/registry tests 403 while the rest pass, check `pwd` before you debug auth — and
 confirm with `python -c "from foundation.config import get_settings; print(get_settings().public_base_url)"`,
 which prints the production URL when you've picked up the wrong `.env`. When installing without
 Docker, note the harness auto-loads via a `pytest11` **entry point**: a `PYTHONPATH`-only setup
