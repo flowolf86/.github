@@ -380,3 +380,66 @@ confirm with `python -c "from foundation.config import get_settings; print(get_s
 which prints the production URL when you've picked up the wrong `.env`. When installing without
 Docker, note the harness auto-loads via a `pytest11` **entry point**: a `PYTHONPATH`-only setup
 has no dist-info, so the plugin never loads — add `-p foundation.testing.pytest_plugin`.
+
+## A handed-over animated SVG can arrive with its `<style>` stripped — and a hidden base state ships it blank
+
+Design pipelines commonly sanitize `.svg` on write and drop `<style>`/`<animate>`. The
+nebenkosten mark arrived that way **twice**: v1 kept its inline `stroke-dasharray`/
+`-dashoffset` but lost the `@keyframes` that would have animated the offset back to 0 — so
+every path sat at full offset and the icon rendered **invisible**; v2 replaced the dash
+attributes with `--l` custom properties that no surviving rule consumed, so it rendered
+**fully drawn but frozen**, byte-identical to the static file. Both *look* fine in a diff —
+the paths, the delays and the lengths are all present and correct. Design eventually shipped
+the deliverable as `nebenkosten-motion.html` (the `<svg>` inside it copied verbatim to `.svg`
+animates identically) precisely because their pipeline could not emit a working `.svg`.
+
+Two rules, and the second is the one that saves you:
+
+**Verify on arrival, in an engine.** `document.getAnimations().length` (expect > 0),
+`getComputedStyle(path).strokeDasharray` (expect a length, not `none`), and frames sampled
+across the timeline (expect them to differ). Reading the file proves nothing — a stripped
+`<style>` leaves valid, plausible markup.
+
+**Keep the hidden state OUT of the base rule** — this is what makes a stripped `<style>` a
+non-event instead of an invisible logo:
+
+```css
+/* fail-safe: base state IS the drawn mark; hidden state exists only while animating */
+.nk-draw { animation: nk-draw .34s cubic-bezier(.65,0,.35,1) both; }
+@keyframes nk-draw {
+  from { stroke-dasharray: var(--l) var(--l); stroke-dashoffset: var(--l); }
+  to   { stroke-dasharray: var(--l) var(--l); stroke-dashoffset: 0; }
+}
+```
+
+`animation-fill-mode: both` back-fills the `from` state during each path's `animation-delay`,
+so the draw-in still works — but if the animation never runs (stripped style, blocked CSS,
+reduced motion, an engine quirk) the element simply renders drawn. Putting
+`visibility:hidden` or the dash props on the element itself re-creates the exact bug. Same
+family as *"Changing a CSS variable's VALUE does nothing if no rule consumes it"* — `--l`
+without a consumer is inert.
+
+**Corollary — pixel proxies lie when verifying this.** Element screenshots composite whatever
+paints *behind* the element (a card/tile background makes every capture 100% opaque, so
+"ink coverage" reads identical in every state); serializing the node to a `data:` URL drops
+the external stylesheet, so it always renders the *base* state and reports success no matter
+what; and a demo page's own CSS (`.tile svg{width:120px}`) outranks a `width` attribute you
+set. Four separate "it differs!" results in a row were all measurement artifacts, not the
+animation. Assert the animated **property** via `getComputedStyle`/`getAnimations` and seek
+the timeline with the Web Animations API (`anim.currentTime = t`) rather than racing the wall
+clock; only compare pixels after normalising size, background and layout.
+
+## The hub icon extractor regex-matches tag literals in the template's comment prose
+
+Every foundation app announces its product card with `module.py::_icon_inner_svg()`, which
+regex-matches `<svg[^>]*>(.*)</svg>` over the **raw** `_app_logo.html` and ships the inner
+markup. Documenting the mark with a comment that mentions a tag literally — e.g. *"the euro's
+stroke sits on the `<g>`, not the root `<svg>`"* — makes that prose `<svg>` the first match, so
+the hub receives the tail of your comment plus a nested root element instead of clean paths.
+The app itself renders fine (Jinja strips the comment at render time); only the hub card
+breaks, in a different repo, with no error anywhere. **Rule:** strip Jinja comments before
+matching (`re.sub(r"\{#.*?#\}", "", src, flags=re.DOTALL)`), keep tag literals out of that
+comment, and assert the extracted payload in a test — non-empty, no `<svg`, no `{#`/`{%`, and
+parses standalone once re-wrapped. While there: the hub re-wraps the inner markup in its own
+`svg` at `stroke-width: 2`, so any stroke weight that differs from the house's (a lighter euro,
+a hairline detail) must live on an inner `<g>` — a root-level attribute is silently discarded.
