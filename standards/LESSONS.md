@@ -355,3 +355,28 @@ and read the body — a `Wartungsmodus` page (and `/healthz` → 200) means main
 toggled ON in the hub admin (Kontrollzentrum), so the fix is to toggle it *off there*, nothing to
 debug. Only once you've confirmed the body is NOT the maintenance page (and `/healthz` is failing
 or timing out) should you investigate Traefik, crowdsec, certs, or the container itself.
+
+## Run the app suite from `app/` — a repo-root pytest run loads the PRODUCTION `.env`
+
+`foundation.config.Settings` sets `env_file=".env"`, which pydantic-settings resolves
+**relative to the current working directory** — not to the config module. Every app repo keeps
+its real `.env` at the root (gitignored, full of production values), so running `pytest` from
+the repo root silently loads it: `PUBLIC_BASE_URL=https://www.<app>.de` then makes the admin
+CSRF origin check reject the tests' `http://localhost:8086` origin, and **~19 admin/registry
+tests fail with `403`/`assert 0 == 1`**. Nothing names `.env` in the output — the failures read
+as real regressions in admin auth, which is a long way from "wrong directory". CI never sees
+this because it runs from `app/`, where no `.env` exists and the defaults are the test values.
+
+A root `pytest.ini` compounds it: pytest picks ONE config file, so a root `pytest.ini` shadows
+`app/pyproject.toml` and its `foundation_test_dsn` is never read — the shared harness
+(`foundation.testing.pytest_plugin`) then goes inert, never forces `DATABASE_URL`, and every
+test errors with a `Settings` `database_url ... Field required` **validation** error that looks
+like a broken install rather than a missing ini. (Same family as the editable-install trap
+above: an agent without a venv hits both back to back and concludes the suite is CI-only.)
+
+**Rule:** run the app suite from the app directory (`cd app && pytest -q`), never from the repo
+root. If admin/registry tests 403 while the rest pass, check `pwd` before you debug auth — and
+confirm with `python -c "from foundation.config import get_settings; print(get_settings().public_base_url)"`,
+which prints the production URL when you've picked up the wrong `.env`. When installing without
+Docker, note the harness auto-loads via a `pytest11` **entry point**: a `PYTHONPATH`-only setup
+has no dist-info, so the plugin never loads — add `-p foundation.testing.pytest_plugin`.

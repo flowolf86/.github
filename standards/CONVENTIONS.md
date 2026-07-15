@@ -85,6 +85,10 @@ pulling latest `master` on the VPS.
   your first test run wastes it and can leave the team unable to merge for the rest
   of the month. Run `make test` / `pytest -q` (and lint/mypy) locally first; only
   push once it passes.
+- **Run the suite from the app directory (`cd app && pytest -q`), never the repo
+  root.** `env_file=".env"` is cwd-relative, so a root run loads the *production*
+  `.env` and admin/registry tests fail on the CSRF origin check — failures that read
+  as real regressions. CI runs from `app/`. See LESSONS.
 - If the environment cannot run the full suite (no PostgreSQL, missing submodule,
   etc.), run every check that *can* run locally and state clearly what was and was
   not verified — do not let CI be the first time the change is exercised.
