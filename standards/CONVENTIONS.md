@@ -101,6 +101,24 @@ pulling latest `master` on the VPS.
 - Port mapping lives in `docker-compose.yml` (host → container); change the host
   (left) side only.
 
+## Third-party assets & attribution
+
+Every self-hosted open-source asset gets credited — apps ship the assets in their
+own image, so the attribution ships with them.
+
+- **Every app has an `/licenses` page** (route + template, `noindex`), reachable
+  from the drawer's legal section (`NavItem(section="legal")`) or, on the public
+  hub, the footer. It credits the backend dependency stack (foundation engine +
+  app extras), the bundled fonts (SIL OFL), and the icon set — one row each.
+- **Bootstrap Icons (MIT) are used across the suite and MUST always be credited,
+  even when the icons are copied into the app's own sprite** rather than pulled
+  from the `bootstrap-icons` package. Copying the artwork does not remove the
+  attribution obligation — the `/licenses` credit stays.
+- **A copied third-party icon carries an inline comment naming its origin** at
+  the sprite/symbol site (e.g. `{# trash3 — Bootstrap Icons (MIT) #}`), so the
+  provenance travels with the markup and the next editor knows it is attributable.
+  See `nebenkosten-app`'s `templates/base.html` sprite for the pattern.
+
 ## Hub self-registration (new apps)
 
 Every new Foundation-based app **self-registers with the wolf-labs hub**
