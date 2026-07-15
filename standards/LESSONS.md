@@ -446,3 +446,32 @@ comment, and assert the extracted payload in a test — non-empty, no `<svg`, no
 parses standalone once re-wrapped. While there: the hub re-wraps the inner markup in its own
 `svg` at `stroke-width: 2`, so any stroke weight that differs from the house's (a lighter euro,
 a hairline detail) must live on an inner `<g>` — a root-level attribute is silently discarded.
+
+## A bottom-bar app must not also set `nav_rail=True` without the shell knowing
+
+The foundation-ui shell has TWO desktop-rail mechanisms and they collide. `primary_nav="bottom-bar"`
+gives `body.has-rail`, which at ≥600px transforms the bottom bar into a left rail — automatic, no
+opt-in. `nav_rail=True` gives `body.nav-rail`, a SECOND, standalone `.shell-rail` element at ≥768px.
+Set both (a bottom-bar app that also opts into `nav_rail` for "packliste parity") and the two navs
+stack on the left — and the standalone rail is near-empty because `drawer_main()` returned `[]` for
+bottom-bar apps, so it renders brand + settings only. It looks like "the rail won't disappear."
+packliste is fine because it's `primary_nav="drawer"` — only `nav-rail`, never `has-rail`, and its
+`drawer_main()` is populated. **Rule:** "parity" is per-nav-mode, not per-flag. A bottom-bar app that
+wants the rich `.shell-rail` needs the shell to (a) scope the `has-rail` bottom-nav transform to
+`:not(.nav-rail)`, (b) hide the bottom bar where the rich rail shows, (c) keep the hamburger so the
+drawer's settings/legal stay reachable (only drawer-primary rail apps hide it), and (d) have
+`drawer_main()` return the primaries so both the rail and the drawer's first section are populated.
+Don't just flip `nav_rail=True` on a bottom-bar app and assume packliste's outcome.
+
+## A held identity-value transform (`scale(1)`, `rotate(360deg)`) still composites — end at `none`
+
+A one-shot CSS entrance animation with `animation-fill-mode: both` HOLDS its 100% keyframe. If that
+keyframe is `transform: scale(1)` / `rotate(360deg)` / `translateY(0)` — an identity *value* but still
+a transform — the browser can keep the element on its own composited layer and render it softly
+(blurry) forever after the motion ends, even though the JS "settle" that drops the animation should
+release it. The fix is to end the keyframe at `transform: none` (no transform at all), which releases
+the layer so the element re-rasterizes sharp at device DPI. This bit the foundation-ui nav-icon
+entrances: only `nav-book` (deliberately ending at `none` for a 3D case) stayed crisp; the 2D ones
+held `scale(1)`/`rotate(360deg)` and stayed soft. **Rule:** any `fill: both`/`forwards` entrance that
+should look untouched at rest must end its final keyframe at `transform: none`, never an identity-valued
+transform — and don't rely on a JS settle hook alone to undo the composite.
