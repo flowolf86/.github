@@ -334,3 +334,24 @@ non-editable local install (the natural choice for a "clean copy" test harness).
 `foundation-ui` **editable** (`-e`) anywhere you run an app's e2e/gate suite locally, mirroring CI;
 and the real fix is to add `"testing/*.js"` (and any other runtime-loaded non-Python assets under
 `foundation_ui/`) to foundation-ui's `package-data` so a wheel/non-editable install is self-contained.
+
+## A whole-site 503 is usually the engine's maintenance gate, not a Traefik/infra outage
+
+An app returning `503` on every page — but the container still healthy — is almost always the
+Foundation engine's own **maintenance gate**, not a reverse-proxy or infra failure. The gate
+(`foundation/app_factory.py`, `_register_maintenance_gate`) serves a 503 "Wartungsmodus" HTML page
+for *every* route except `/healthz` and `/api/auth` whenever the hub has flagged the app
+(per-app Wartungsmodus, or a central lockdown) — the flag lives in the registry and is refreshed
+on each announce. This is a deliberate, hub-toggled state, not a crash. Its tells are unambiguous:
+`GET /` → `503` with `<title>Wartungsmodus</title>`, `Retry-After: 120`, `Server: uvicorn`, while
+`GET /healthz` → `200` (the gate exempts it, so Docker/Traefik still see the backend as healthy).
+The trap: this looks identical to a Traefik "no healthy backend" 503, so it lures you into a deep
+infra rabbit hole — crowdsec middleware, router/middleware names, docker network IPs, ACME certs —
+chasing an outage that doesn't exist. This cost significant time on gs/scuba: multiple wrong
+theories (crash-loop, middleware-name collision, crowdsec double-apply) before anyone read the 503
+*body*, which said "Wartungsmodus" in the first line. A change was even shipped and reverted on the
+false diagnosis. **Rule:** when a wolf-labs app serves a site-wide 503, FIRST `curl -sS https://<host>/`
+and read the body — a `Wartungsmodus` page (and `/healthz` → 200) means maintenance/lockdown is
+toggled ON in the hub admin (Kontrollzentrum), so the fix is to toggle it *off there*, nothing to
+debug. Only once you've confirmed the body is NOT the maintenance page (and `/healthz` is failing
+or timing out) should you investigate Traefik, crowdsec, certs, or the container itself.
