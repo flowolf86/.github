@@ -529,3 +529,33 @@ e2e as `pytest -c pytest.ini app/e2e` to pin the root config. When an e2e fixtur
 "server did not start" but a manual boot works, suspect config/warning-filter scope before
 the server: re-run the fixture's own construction in-process and print the thread's
 exception rather than believing the timeout.
+
+## A service that boots is not a service that works — provisioning belongs in code, not a README
+
+The Better Auth `auth-service` ran in production for its entire life, in all six
+apps, with **no database schema at all**. Applying `sql/better_auth_schema.sql` was
+step 1 of the service's README (`npm run migrate:schema`) and **nothing ran it** —
+not the Dockerfile's CMD, not `app-release.yml`. Three things then conspired to hide
+it completely: the container started fine and logged `listening on :3000`; `/healthz`
+returned `{status:"ok"}` **without ever touching the database**; and CI was green
+because pytest never drives the Node sidecar (`server.ts`/`auth.ts` were even excluded
+from coverage as composition roots "exercised by the deferred cross-stack E2E" — an
+E2E that never arrived). Every `/api/auth/*` request 500'd on `relation "rateLimit"
+does not exist`, but the only user-visible symptom was email/password login failing —
+and since every login in the family actually goes through a *different* (legacy Python
+OAuth) path, nobody ever hit it. The DDL was also wrong in a second way that only a
+real request could reveal: `jwks` existed but lacked its `expiresAt` column, and a
+table that exists but is shaped wrong fails exactly like an absent one (`CREATE TABLE
+IF NOT EXISTS` will never repair it — you need an explicit `ALTER ... ADD COLUMN IF
+NOT EXISTS`). **Rules:** (1) provisioning/migration runs from code on every boot
+(idempotent DDL), never from a documented command — a deploy step that lives only in
+prose is not a deploy step; (2) verify after provisioning and **refuse to listen** if
+the schema is incomplete — a crash-loop and a red deploy are loud, serving 500s is
+silent; (3) derive "what must exist" from the library's own schema (e.g. Better Auth's
+`getAuthTables(auth.options)`) rather than a hand-written list — the missing table only
+existed because `rateLimit.storage="database"`, and hand-lists are how DDL and config
+drift apart; (4) a health check that does not touch the dependency the service exists
+to use is theatre — probe the real pool; (5) if a component is excluded from coverage
+"pending an E2E", assume the E2E will never be written and that this is exactly where
+the bug will live: one test that applies the schema and sends a real request would have
+caught all of it on day one.
