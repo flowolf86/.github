@@ -696,3 +696,46 @@ incognito works, it's local cache/bfcache/extensions, fixed by `Ctrl+Shift+R` / 
 not a server bug. `no-store` on the document does NOT guarantee the tester sees fresh JS. Sibling
 of the "assert the real mechanism, not a proxy" traps — verify against a clean client, not a
 primed one.
+
+**CORRECTION (this exact incident was NOT cache).** The "3 of 6 apps broken, retrying fixes it,
+incognito works" pattern above was later root-caused to an **intermittent server-side auth
+failure** — the shared `auth-service` Docker DNS round-robin (see the next entry). "Incognito
+works" was *luck*: the internal get-session call randomly hit the correct sidecar that time. The
+real lesson is the meta-one: an **intermittent** bug mimics a cache bug (works sometimes, "clears"
+on retry), and a single "incognito works" is a false all-clear. Before concluding "client cache,"
+confirm the failure is **deterministic** (fails every clean attempt); if it's flaky across
+identical clean clients, suspect an intermittent server/infra cause, not the browser.
+
+## A per-app sidecar addressed by its bare compose service name round-robins across every stack on a shared network
+
+Every app's Better Auth sidecar is the compose service `auth-service`, and every one is attached
+to the **shared external** `mail` and `traefik` networks. Docker Compose adds the *service name*
+as a network alias on **every** network a service joins — so all six apps' sidecars answer to
+`auth-service` on those shared nets. An app that validates a session server-to-server via
+`http://auth-service:3000/api/auth/get-session` therefore has Docker DNS **round-robin across all
+six sidecars**. When the call lands on a *foreign* app's sidecar, that sidecar checks the session
+cookie against **its own `BETTER_AUTH_SECRET`** → signature mismatch → returns `null` → the user
+is bounced to `/login`. With six sidecars it fails ~5/6 of the time, per call.
+
+Why it burned a full day to find:
+- **Intermittent**, so it mimics a browser-cache bug: "some apps work, some don't," "refresh a few
+  times and it works" (you're re-rolling the DNS dice). It was initially mis-filed as stale cache
+  (see previous entry).
+- The auth service **always says you're logged in** when you ask it directly, because the *browser*
+  reaches the *correct* sidecar through Traefik (Host-routed). Only the app's **internal** call is
+  randomized. The diagnostic tell: `browser → /api/auth/get-session` returns the full valid
+  session, but the app's own auth-gated pages 401 for the same cookie. That gap = the internal
+  call diverging from the public path.
+- App request-time logs did not surface (single uvicorn, `PYTHONUNBUFFERED=1`, yet WARN-level
+  bridge logs never reached `docker logs`), so log-based diagnosis was blind and every layer
+  looked byte-identical to a "working" sibling.
+
+**Rule:** never let a per-app service be reached by the bare compose service name when that service
+is also attached to a **shared external network** — the service-name alias collides across every
+stack on that network and Docker DNS round-robins silently. Give each app's sidecar a **unique
+`container_name`** (e.g. `nebenkosten-auth-service`) — or a unique per-app network alias — and point
+`AUTH_INTERNAL_URL` at that unique name, so the internal call can only ever reach its own sidecar.
+Verify it resolves to exactly one container (`docker ps --format '{{.Names}}' | grep -c '^<name>$'`
+→ `1`). This applies to any server-to-server call between co-located multi-tenant stacks, not just
+auth. Corollary: an intermittent auth "logout" that clears on retry is a validator-identity bug
+(wrong backend, rotated/mismatched secret), not a session-expiry or cache bug.
