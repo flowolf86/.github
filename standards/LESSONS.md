@@ -575,3 +575,27 @@ dependency/attribution listings, assert the lowercase canonical distribution nam
 what `importlib.metadata.distributions()` yields), consistent across the app family; and
 when a "page renders empty" symptom appears, probe the actual `page.text` for known-good
 markers (a heading, a panel class) before assuming the template failed.
+
+## A per-app pinned "moving" tag drifts silently — one app in a family gets left behind
+
+Rolling a foundation/auth-service fix across all six apps: five picked it up, one (gs)
+silently did not. Cause: the app image deploys on a pinned release tag
+(`IMAGE_TAG=vX.Y.Z`), but the **auth-service** sidecar uses a *moving* tag,
+`image: .../auth-service:${AUTH_SERVICE_TAG:-latest}`. Five apps left it unset (→
+`latest`); gs's VPS `.env` pinned `AUTH_SERVICE_TAG=v1.0.0`. So gs's deploy did
+`docker compose pull` on `v1.0.0` (unchanged, months old) and `up -d` saw no diff and
+**did not recreate the container** — the sidecar sat at an ancient image while its
+release went green, because the release only builds/pushes and the deploy "succeeded"
+at pulling an image that simply hadn't changed. The tell was not in any log: the
+container's `Up 11 days` while its siblings read `Up 2 minutes`. **Rules:** (1) across a
+repo family, a moving-tag reference (`:latest`, `:stable`) must be set the SAME way
+everywhere — audit it explicitly (`grep AUTH_SERVICE_TAG /opt/*/.env`), because one
+app pinned to an old value is invisible until you compare running-image age; (2) after
+a fleet rollout, verify the *running image/uptime* of the thing you changed, not just
+that each release went green — a green deploy that pulled an unchanged pinned tag is a
+no-op that looks identical to success; (3) a stale pin can only be repaired by changing
+the pin (a VPS `.env` edit) and redeploying — a plain redeploy re-pulls the same stale
+tag. And note the recovery wrinkle: a `workflow_dispatch` deploy-only path pulls the
+existing image and cannot fix a `:latest` whose registry manifest has gone bad
+(`NotFound: content digest … not found`, seen after concurrent deploys' `docker image
+prune`); only a full release *rerun* that rebuilds and repushes the image restores it.
