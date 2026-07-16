@@ -599,3 +599,25 @@ tag. And note the recovery wrinkle: a `workflow_dispatch` deploy-only path pulls
 existing image and cannot fix a `:latest` whose registry manifest has gone bad
 (`NotFound: content digest … not found`, seen after concurrent deploys' `docker image
 prune`); only a full release *rerun* that rebuilds and repushes the image restores it.
+
+## Bearer-only auth silently excludes server-rendered page navigations
+
+The Foundation auth dependency advertised its "primary production path" as an
+`Authorization: Bearer <jwt>` header verified against JWKS. That is correct for
+client-side XHR/fetch (`api.js` sets the header) — but a **top-level browser
+navigation carries no Authorization header**, only cookies. So the JWT path can
+NEVER authenticate a GET of an HTML page. In this codebase the only credential
+page-auth actually read was a legacy cookie set exclusively by the old Google
+OAuth flow; the newer Better Auth (email/password) login set its own session
+cookie that Python never looked at — so email/password users could sign in and
+then bounce straight back to `/login` on the next navigation. The feature looked
+"wired" (login POST succeeded, a JWT was even minted) yet was non-functional for
+the actual app, and nobody noticed because every real user happened to use the
+other login method. **Rule:** for any server-rendered app, auth must be resolvable
+from a **cookie the backend validates**, not only a Bearer header — the header
+path serves API/XHR, the cookie path serves page loads, and you need both. When
+adding a new auth provider, test the thing users actually do (log in, then load a
+gated page), not just that the login call returns 200. If the identity provider is
+a separate service (here a Better Auth sidecar), validate its session cookie by
+forwarding it to that service's session endpoint (`get-session`) over the internal
+network; make the call fail *safe* (timeout/error → unauthenticated, never a 500).
