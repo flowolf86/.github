@@ -559,3 +559,19 @@ to use is theatre — probe the real pool; (5) if a component is excluded from c
 "pending an E2E", assume the E2E will never be written and that this is exactly where
 the bug will live: one test that applies the schema and sends a real request would have
 caught all of it on day one.
+
+## Dependency/attribution tests assert the canonical dist name, not the branded name
+
+The compliant `/licenses` page (and any test over installed-metadata output) lists
+each component under its **canonical PyPI distribution name** as `importlib.metadata`
+reports it — `fastapi`, `pydantic-settings`, `typing_extensions` — *not* the marketing
+capitalisation (`FastAPI`). dashboard-app's licenses test asserted `"FastAPI" in
+page.text`; it failed while the page was fully correct, and because the failing string
+was absent the rendered HTML *looked* empty of content — sending diagnosis down an
+"empty-render / template-not-rendering" rabbit hole when the only bug was the assertion's
+casing. A green page plus a failing substring assertion reads like the page rendered
+nothing; it usually means the substring is wrong, not the page. **Rule:** in tests over
+dependency/attribution listings, assert the lowercase canonical distribution name (match
+what `importlib.metadata.distributions()` yields), consistent across the app family; and
+when a "page renders empty" symptom appears, probe the actual `page.text` for known-good
+markers (a heading, a panel class) before assuming the template failed.
