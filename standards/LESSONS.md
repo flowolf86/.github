@@ -494,3 +494,38 @@ text that stays put. For anything re-rendered by JS, carry both languages on the
 `window.setLang("en")` → `setLang("de")` on a node that has displayed two different
 values, and assert the accessible name too — an `aria-label` built the same way goes
 stale identically and no screenshot will show it.
+
+## A CSS animation overrides inline styles — even while paused — so scripted sweeps measure nothing
+
+To find out whether dashboard-app's hero label clipped at the frame, the obvious probe is
+to walk the orbit by hand: `arm.style.transform = 'rotate(Xdeg)'`, sample, repeat. It
+reports plausible numbers and they are **fiction** — animated properties sit above inline
+styles in the cascade, so a `transform` under an `animation` is simply ignored and every
+sample comes from the one angle the animation happens to be at. `animation-play-state:
+paused` does NOT help: a paused animation still applies its current value, which is
+exactly the state a "let me freeze it and measure" instinct puts it in. The tell is subtle
+because per-element results still *differ* (each element sits at its own angle), so the
+output looks like a real sweep. It under-reported dashboard-app's clipping as "narrow
+viewports only, ~30px"; the truth was every viewport, up to 82px, on every planet.
+**Rule:** to script an element through an animated range, kill the animation first
+(`el.style.animation = 'none'`), then set the property — and make the probe prove it moved
+(assert the sampled positions actually vary, or count distinct values) before trusting a
+single number it prints. Sibling of the `color_scheme="dark"` and token-swap traps: assert
+the real mechanism, never a proxy for it.
+
+## `pytest app/e2e` from the repo root loads the WRONG config and silently kills the server thread
+
+The app suites live in `app/tests` (run from `app/`) and `app/e2e` (run from the root), and
+pytest picks its config from the *arguments*, not the cwd: `pytest app/e2e` walks up from
+`app/e2e`, finds `app/pyproject.toml` first, and adopts rootdir=`app/` — including its
+`filterwarnings = ["error"]`. That turns uvicorn's websockets `DeprecationWarning` into a
+fatal exception **inside the daemon thread** running the e2e server. Every test then fails
+identically with `RuntimeError: E2E server at http://localhost:8091/healthz did not start
+within 15.0s`, and the real exception is swallowed by the thread. The traceback points at
+the fixture, so it reads like a port clash, an unreachable database or a broken conftest —
+and the server boots perfectly when you run it by hand, which sends you hunting further.
+The root `pytest.ini` (no `filterwarnings`) is the config CI actually uses. **Rule:** run
+e2e as `pytest -c pytest.ini app/e2e` to pin the root config. When an e2e fixture reports
+"server did not start" but a manual boot works, suspect config/warning-filter scope before
+the server: re-run the fixture's own construction in-process and print the thread's
+exception rather than believing the timeout.
