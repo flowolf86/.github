@@ -156,6 +156,55 @@ See `beikost-app`, `packliste-app`, `scuba-app`, or `gs-app`'s `module.py` /
 `shell_config.py` for the reference implementation, and `dashboard-app`'s
 `app/routers/registry.py` for the hub-side endpoint contract.
 
+## Concurrent agents on the same repo (isolation + publish lease)
+
+Multiple agents (Claude sessions, the human, scripts) routinely operate the same
+`~/Dev` repo at once. A single git checkout's `HEAD`, index, and working tree are
+**global mutable state**, so this produces two distinct classes of conflict — each
+needs its own fix. Getting these wrong has cost real work (a lost commit recovered
+from `reflog`; two sessions colliding on the same version number; a mislabeled
+release).
+
+**Class A — working-tree / HEAD collisions** (a linter reverts your files, HEAD
+moves mid-command, your branch gets force-pushed with someone else's commit).
+**Fix: isolation.** Do every non-trivial git edit in a private worktree, never in
+the shared checkout:
+
+```sh
+git fetch origin
+git worktree add -b <type>/<slug> /tmp/<slug>-wt origin/master
+cd /tmp/<slug>-wt
+git submodule update --init --recursive     # worktrees don't populate submodules
+# …edit, test, commit, push from HERE…
+```
+
+Its HEAD/index/tree are immune to the main checkout's churn. Tag-secure any good
+commit immediately (`git tag -f recover/<slug> <sha>`) and verify the TRUE remote
+with `git ls-remote origin <branch>` — never trust the local tracking ref. Remove
+the worktree when done (`git worktree remove --force <dir>`).
+
+**Class B — publish races** (two agents pick the same version, both merge to
+master, a tag ends up mislabeled). Worktrees do NOT fix this — the collision is on
+the shared remote during the short "choose version → push → merge → tag" window.
+**Fix: serialize that critical section per repo with the shared advisory lease,**
+`standards/agent-lock.sh` (synced to every repo at `.standards/agent-lock.sh`). It
+is an atomic-`mkdir` lease with a TTL, so an agent that dies mid-publish can't
+deadlock the repo — a stale lease is broken automatically on the next acquire:
+
+```sh
+LOCK=.standards/agent-lock.sh                     # or ~/Dev/dot-github/standards/agent-lock.sh
+TOKEN=$(AGENT_ID="$(id -un)/session" bash "$LOCK" acquire <repo-name>) || exit 1
+trap 'bash "$LOCK" release <repo-name> "$TOKEN"' EXIT
+git fetch origin && git rebase origin/master      # pick the version AFTER acquiring
+#  …bump pyproject version, push, gh pr merge --squash --admin, gh release create…
+```
+
+Acquire the lease **before** reading `origin/master` to choose the next version, so
+two agents can't both claim `vX.Y.Z`. Hold it only for the publish steps (default
+TTL 15 min; `agent-lock renew` if a publish genuinely runs long); editing and
+testing in a worktree need no lock and stay fully parallel. `agent-lock status
+<repo>` shows the current holder.
+
 ## Working with Claude Code
 
 These rules keep Claude Code productive across the repo family. They exist because
