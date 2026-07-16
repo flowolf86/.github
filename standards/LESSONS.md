@@ -657,3 +657,24 @@ ships even though it wasn't meant to. **Rule:** before an emergency `deploy.sh`,
 tree is exactly the intended ref — `git status --short` clean (bar the deploy script itself)
 and `git rev-parse HEAD == origin/master`; `git stash -u` any stray WIP first, deploy, then
 restore. Treat deploy.sh as "ship my working directory," not "ship master."
+
+## Run the local suite under CI's Python version, not whatever's on PATH
+
+An agent's machine may default to a newer Python than CI uses. Running the app
+suite under it produces **phantom failures that CI would never hit** — and they
+look like real regressions. Concretely (2026-07-16, gs-app): the local default was
+Python 3.13, but every app targets **3.12** (the `python:3.12-slim` prod image; the
+reusable `app-ci.yml` defaults `python_version: "3.12"`). Under 3.13, three
+`test_discovery.py` tests failed with `DeprecationWarning: 'count' is passed as
+positional argument` from `re/__init__.py` — a deprecation that **only exists in
+3.13** — surfacing because the code calls `re.sub(..., count)` positionally and
+pytest is configured `filterwarnings = error`. The change under test (legal links in
+Settings) had nothing to do with discovery; the failures were pure interpreter skew.
+Chasing them as a real bug wastes time, and — worse — "fixing" them to satisfy 3.13
+can churn code CI is fine with. **Rule:** before trusting a local run, match CI's
+interpreter — read the app's `Dockerfile` (`FROM python:3.12-slim`) and the CI
+`python_version` input, and build the venv with that exact minor (`uv venv --python
+3.12`). If a failure only reproduces under a *different* Python than CI's, it's
+environment skew, not a regression — re-run under CI's version before acting. (It is
+still worth noting forward-compat debt like the positional-`count` call, but that's a
+separate, non-blocking cleanup — not a reason to fail the current change.)
