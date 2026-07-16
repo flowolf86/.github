@@ -641,3 +641,19 @@ in-tree root-owned caches entirely — no sudo, survives future Docker builds. S
 egg-info-timestamp trap (same root cause: Docker's build user owns artifacts inside the
 submodules); if an editable install *or* a test run misbehaves, check `ls -ld` for root-owned
 build output first.
+
+## The emergency `deploy.sh` rsyncs the WORKING TREE — uncommitted WIP ships to prod
+
+`deploy.sh` (the fallback for when Actions is billing-blocked) does `rsync -az --delete` of
+the local working directory to the VPS and builds there — so whatever is in the tree ships,
+**including uncommitted or untracked changes that were never reviewed, tested in CI, or
+merged**. This is unlike the release.yml path, which builds from the pushed git ref. During
+the Better Auth Phase-2 rollout, beikost's tree carried a half-finished family-page feature
+(untracked `family.html`, modified routers/locales) alongside the intended auth change; a
+naive `./deploy.sh` would have pushed that WIP to production. (It happened to get wiped by
+the working-tree-reverting linter first — see that lesson — but relying on that is luck, not
+safety.) The in-image test gate does NOT catch this: WIP that compiles and passes tests still
+ships even though it wasn't meant to. **Rule:** before an emergency `deploy.sh`, verify the
+tree is exactly the intended ref — `git status --short` clean (bar the deploy script itself)
+and `git rev-parse HEAD == origin/master`; `git stash -u` any stray WIP first, deploy, then
+restore. Treat deploy.sh as "ship my working directory," not "ship master."
