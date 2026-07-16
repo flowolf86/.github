@@ -475,3 +475,22 @@ entrances: only `nav-book` (deliberately ending at `none` for a 3D case) stayed 
 held `scale(1)`/`rotate(360deg)` and stayed soft. **Rule:** any `fill: both`/`forwards` entrance that
 should look untouched at rest must end its final keyframe at `transform: none`, never an identity-valued
 transform — and don't rely on a JS settle hook alone to undo the composite.
+
+## The shell's `data-en` swap caches German on first use — never point it at reused elements
+
+foundation-ui's bilingual swap freezes the German copy into the DOM the first time it
+runs: `if (!("de" in el.dataset)) el.dataset.de = el.textContent` (`shell/i18n.js`).
+That is correct for static page text, whose German never changes — but it makes
+`data-en` **wrong for any element whose content is rewritten at runtime**. A single
+reused node (one label chip serving nine hero planets, a toast, a modal title) gets
+`data-de` stamped with whichever app's German happened to be showing at the first
+switch; from then on every DE→EN→DE round-trip restores *that* name, not the current
+one. It fails only on the second language switch, so it survives every first-load
+check, and the element still switches languages — just to stale content — which reads
+like a data bug rather than a caching one. **Rule:** `data-en` is for server-rendered
+text that stays put. For anything re-rendered by JS, carry both languages on the
+*source* (`data-name`, `data-status-de`/`-en`) and have the renderer pick by
+`document.documentElement.lang`, re-rendering on language change. Prove it with
+`window.setLang("en")` → `setLang("de")` on a node that has displayed two different
+values, and assert the accessible name too — an `aria-label` built the same way goes
+stale identically and no screenshot will show it.
