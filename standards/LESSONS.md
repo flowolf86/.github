@@ -678,3 +678,21 @@ interpreter — read the app's `Dockerfile` (`FROM python:3.12-slim`) and the CI
 environment skew, not a regression — re-run under CI's version before acting. (It is
 still worth noting forward-compat debt like the positional-`count` call, but that's a
 separate, non-blocking cleanup — not a reason to fail the current change.)
+
+## A just-deployed UI change that "looks broken" is often the tester's stale cache — incognito is the discriminator
+
+After deploying the Better Auth button flip, 3 of 6 apps appeared broken in the browser — the
+Google button "did nothing, no redirect, no error" — while 3 worked. Hours went into diffing
+config, foundation versions, auth-service health, cookies, CSRF/Origin, and callbacks across a
+"working" and a "failing" app. They were **byte-identical server-side** (same HTML, same JS,
+same everything); the failing apps were simply serving the tester's **stale browser cache** on
+those domains (leftover from repeated migration testing). The trap: the login HTML was
+`Cache-Control: no-store`, so "it can't be cached" felt safe — but bfcache (back/forward
+restore) and cached *sub-resources* still presented a stale page, and browser extensions
+(off in incognito) can silently block the request too. **Rule:** before deep-diving a
+"deploy looks broken" report where the served bytes are verifiably correct, first rule out the
+tester's client state — have them try **incognito** (one step: clean cache, no extensions). If
+incognito works, it's local cache/bfcache/extensions, fixed by `Ctrl+Shift+R` / clear-site-data,
+not a server bug. `no-store` on the document does NOT guarantee the tester sees fresh JS. Sibling
+of the "assert the real mechanism, not a proxy" traps — verify against a clean client, not a
+primed one.
