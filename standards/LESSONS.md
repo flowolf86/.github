@@ -621,3 +621,23 @@ gated page), not just that the login call returns 200. If the identity provider 
 a separate service (here a Better Auth sidecar), validate its session cookie by
 forwarding it to that service's session endpoint (`get-session`) over the internal
 network; make the call fail *safe* (timeout/error → unauthenticated, never a 500).
+
+## Stale root-owned `__pycache__` from Docker builds makes pytest run OLD bytecode
+
+An app that vendors `foundation`/`foundation-ui` and has been built with Docker carries
+root-owned `app/**/__pycache__` directories whose `.pyc` files were compiled *inside the
+image* (their embedded co-filename is `/src/app/...`). A later local `pytest` run — as your
+own user — reuses those `.pyc` when the source mtime matches, so it executes **stale test
+logic**, not the code on disk. The result is phantom failures: beikost's `test_static_assets`
+reported i18n keys (`nav.family`) and CSS classes (`settings-legal`) "missing" that were
+plainly present in `en.js`/`styles.css`, because the cached test predated them. It reads like
+a real regression or a broken working tree, not a caching artifact. **Tells:** the traceback
+paths say `/src/app/tests/...` (a path that doesn't exist on your machine), and the exact
+same check *passes* when you run its logic inline in a fresh interpreter. You usually can't
+`rm` the dirs (root-owned, no passwordless sudo) — and even clearing them is a treadmill if
+the next Docker build recreates them. **Rule:** run local pytest with
+`PYTHONPYCACHEPREFIX=<writable tmp dir>` so Python reads/writes bytecode there and ignores the
+in-tree root-owned caches entirely — no sudo, survives future Docker builds. Sibling of the
+egg-info-timestamp trap (same root cause: Docker's build user owns artifacts inside the
+submodules); if an editable install *or* a test run misbehaves, check `ls -ld` for root-owned
+build output first.
