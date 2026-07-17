@@ -783,3 +783,23 @@ with **0** jobs) — rule that out with `gh api …/actions/permissions/workflow
 (`default_workflow_permissions` should be `write`). **Rule:** before building elaborate manual-deploy
 workarounds, confirm the pipeline is truly dead this way (or just cut one release and watch the run),
 rather than inferring "billing" from CI alone — and remember the budget resets on the monthly rollover.
+
+## "Legacy code removed?" needs a table-READ audit, not a removed-symbol grep — kept data tables go stale
+
+When a migration removes the old *write* path (e.g. the legacy auth code) but deliberately KEEPS the
+old DATA tables, "is the legacy stuff gone?" cannot be answered by grepping for the deleted symbols
+(`foundation.auth.sessions`, `fdn_session`, `upsert_oauth_user`, …) — that search passes while feature
+code still READS the kept tables. Worse, those reads silently go stale: once the new authority (Better
+Auth) stops back-filling the old tables, any entity created AFTER the cutover is missing from them, so
+email→user lookups, member/permission lists, and user-count stats return empty/wrong — broken in prod
+for exactly the newest users, and invisible to a green suite that seeds the old tables. This bit the
+wolf-labs fleet: after the Better Auth cutover, share/invite-by-email and the hub's user counts were
+quietly broken for every post-migration signup, and a "legacy auth code removed?" audit (a symbol grep)
+came back clean and was reported as done — the *reads* were never checked. **Rule:** when a change
+retains tables/columns but redirects their writer, audit the READERS — grep every app for the table
+names AND the model classes (`users`, `user_pii`, `UserPii`, `AppSession`, `oauth_identities`, …), not
+just the removed functions — and make "does any feature still read the kept table?" the completeness
+bar. If the retained data is a mirror the new authority no longer updates, repoint every reader to the
+authority in the same change (then the tables can be dropped), or explicitly flag the readers as
+known-stale. Never let a symbol-search stand in for a completeness check, and never answer a
+"is it all done?" question from a narrower grep than the question implies.
