@@ -739,3 +739,47 @@ Verify it resolves to exactly one container (`docker ps --format '{{.Names}}' | 
 → `1`). This applies to any server-to-server call between co-located multi-tenant stacks, not just
 auth. Corollary: an intermittent auth "logout" that clears on retry is a validator-identity bug
 (wrong backend, rotated/mismatched secret), not a session-expiry or cache bug.
+
+## When Actions is down, `deploy.sh` ships the app but NOT the sidecar — build the sidecar on the VPS
+
+The emergency `deploy.sh` rebuilds and restarts the **app** image (it has a `build:`), but the Better
+Auth sidecar is declared as `image: ghcr.io/…/auth-service:${AUTH_SERVICE_TAG:-latest}` with **no
+`build:`** — so `docker compose up -d --build` rebuilds only the app and leaves the sidecar on
+whatever `:latest` is already on the VPS. Normally `release.yml` (GitHub Actions) builds+pushes the
+sidecar image to GHCR; when Actions is budget-blocked, nothing refreshes it, so an app change that
+needs a new sidecar (new column, new hook) silently ships half the change. Pulling the new image on
+the VPS also fails (`unauthorized` — the images are private and the VPS isn't logged into GHCR), and
+piping a token to `docker login` over SSH is both risky and gets blocked by the agent safety
+classifier. **Rule:** to ship a new sidecar without Actions, build it **on the VPS** from the source
+`deploy.sh` already rsynced — `docker build -t ghcr.io/<owner>/<app>-app/auth-service:latest
+packages/foundation/auth-service` then `docker compose -f docker-compose.yml -f docker-compose.prod.yml
+up -d --no-deps --force-recreate auth-service`. No GHCR login, no token, no `write:packages` scope is
+needed — pushing the image to GHCR is NOT required for the deploy (it only keeps `:latest` current for
+the eventual real release).
+
+## A column read on every authenticated request must exist BEFORE the new app serves — pre-apply the DDL
+
+The Better Auth `"user"` table is owned by the sidecar (its boot `applySchema` runs the DDL), but the
+app `depends_on: auth-service: condition: service_started` — **`service_started`, not
+`service_healthy`** — so the new app can start serving before the sidecar has applied a new column.
+When the engine lock gate does `SELECT disabled FROM "user"` on *every* authenticated request, a
+missing `disabled` column 500s every authenticated page for the whole deploy window — and indefinitely
+if `applySchema` ever fails. **Rule:** when a deploy adds a sidecar-owned column the app reads on the
+hot path, pre-apply the idempotent DDL to each prod DB *before* deploying the app — `docker exec
+<app>-db psql -U <user> -d <db> -c 'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS disabled BOOLEAN NOT
+NULL DEFAULT FALSE'` — so the column exists regardless of sidecar timing; the sidecar's own `ADD
+COLUMN IF NOT EXISTS` then no-ops. (Or make the read fail-open on a missing column, like the
+`registration_enabled` "table missing → open" pattern.) Verify with a canary:
+`docker logs --since 3m <app> | grep -c ' 500 \|UndefinedColumn'` → `0`.
+
+## `runner_name: ""` + `steps: []` on a fast-failing run = a billing/quota block, not a fixable bug
+
+A run that goes to **`failure`** (not `startup_failure`) in ~4–5s with jobs *listed* looks like a real
+job failure, but if the first job has `runner_name: ""` and `steps: []` (via `gh api
+/repos/<o>/<r>/actions/runs/<id>/jobs`), GitHub **scheduled the jobs but never assigned a runner** —
+the Actions minutes budget is exhausted. `gh run view --log-failed` says `log not found` because no
+step ever ran. Don't confuse it with the read-only-permissions trap (that yields `startup_failure`
+with **0** jobs) — rule that out with `gh api …/actions/permissions/workflow`
+(`default_workflow_permissions` should be `write`). **Rule:** before building elaborate manual-deploy
+workarounds, confirm the pipeline is truly dead this way (or just cut one release and watch the run),
+rather than inferring "billing" from CI alone — and remember the budget resets on the monthly rollover.
