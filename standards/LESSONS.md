@@ -843,3 +843,21 @@ back-filling tags across the fleet in a loop:
 2. **Tag the DEPLOYED commit, not master HEAD.** When prod is behind master — an undeployed or broken
    commit sits on the tip (e.g. another agent's in-flight PR that won't build) — tag the commit that's
    actually live (`git tag vX.Y.Z <deployed-sha>`), or the tag misrepresents what's running.
+
+## An auth-migration ETL must copy EVERY profile field (image!), and OAuth providers only seed profile at sign-up
+
+Two compounding gaps made every migrated Google user show a blank avatar after the legacy→Better Auth
+cutover. (1) The one-time ETL (`auth-service/src/etl.ts`) inserted `"user"` with only
+`id, name, email, emailVerified` — it silently dropped `image`. So the Google avatar URL that lived in
+the legacy `users.image` never reached Better Auth's `"user".image`. (2) Better Auth (like most OAuth
+libraries) maps the provider profile — name, **image** — onto the user row ONLY at *sign-up*, not on
+subsequent sign-ins, so an account created any other way (an ETL, an admin insert) never gets its
+image, and re-logging-in doesn't fix it. It stayed invisible because the legacy `users.image` column
+was still being read for avatars until a later refactor repointed reads to `"user".image` (empty) and
+dropped the legacy table — turning a dormant data gap into a visible regression. **Rule:** when you
+ETL identities into a new auth system, copy the WHOLE profile (image/avatar included), not just the
+login-critical id/email/name — and verify with `SELECT count(*) WHERE image IS NULL` on the target.
+For the provider itself, if you want image/name kept fresh (or backfilled for non-sign-up accounts),
+set the "override user info on sign-in" flag (`socialProviders.<p>.overrideUserInfoOnSignIn: true` in
+Better Auth) — providers re-send the picture on every login, so it self-heals on next sign-in even
+after the source data is gone (note: this also refreshes the name from the provider each login).
