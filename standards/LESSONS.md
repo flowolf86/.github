@@ -803,3 +803,21 @@ bar. If the retained data is a mirror the new authority no longer updates, repoi
 authority in the same change (then the tables can be dropped), or explicitly flag the readers as
 known-stale. Never let a symbol-search stand in for a completeness check, and never answer a
 "is it all done?" question from a narrower grep than the question implies.
+
+## Server-to-server auth-validation calls share one `no-trusted-ip` rate-limit bucket → random logouts
+
+The Python engine validates every authenticated *page* load by calling the Better Auth sidecar's
+`/api/auth/get-session` server-to-server (internal Docker network). Those internal calls carry no
+client IP, so Better Auth's per-IP rate limiter pools **all** of them under a single `no-trusted-ip`
+key at the default 100/60s. A single active user clicking around (or one burst — a form submit that
+reloads a data-heavy page) trips 429 on that shared bucket, the session bridge turns the 429 into a
+logout, and re-login is ALSO throttled (`/sign-in` limited) → the user is "randomly logged out and
+can't get back in", intermittently, with nothing wrong with their session. It reads exactly like the
+DNS-collision logout bug but is a different cause — check the app log for
+`get-session unexpected 429` and the sidecar's `"rateLimit"` table for a `no-trusted-ip|/get-session`
+key. **Rule:** never rate-limit the session-validation endpoint at page-load rates — exempt
+`/get-session` in the sidecar's `rateLimit.customRules` (it only reads session state; keep
+sign-in/up/reset strictly limited) — AND make the validation client treat a 429 like a 5xx (transient,
+retried, log-and-deny) rather than an instant session eviction. A throttle on a *validation* call is
+never a "no session" verdict. Immediate mitigation for a live incident: `DELETE FROM "rateLimit"` on
+the app's DB resets the windows.
