@@ -821,3 +821,25 @@ sign-in/up/reset strictly limited) — AND make the validation client treat a 42
 retried, log-and-deny) rather than an instant session eviction. A throttle on a *validation* call is
 never a "no session" verdict. Immediate mitigation for a live incident: `DELETE FROM "rateLimit"` on
 the app's DB resets the windows.
+
+## Setting up version tags when Actions is budget-blocked: `git tag`, not `gh release create`
+
+When you need release *tags* on GitHub but the deploy pipeline can't run (Actions minutes exhausted —
+see the `runner_name: ""` entry), create plain annotated git tags
+(`git tag -a vX.Y.Z <sha> && git push origin vX.Y.Z`), NOT `gh release create`. In this repo family
+`app-release.yml` triggers on `release: types: [published]`, so a raw tag push does nothing, but
+publishing a Release fires the (runner-less) workflow → an instant `startup_failure` in every repo.
+Tags give you the version markers on GitHub with zero workflow noise; when budget returns, promote a
+tag to a Release to run the real build+deploy and reconcile prod with the tag. Two traps when
+back-filling tags across the fleet in a loop:
+
+1. **Validate the derived version is non-empty BEFORE tagging/pushing.** A quoting slip in
+   `ver=$(git show $ref:path | grep '^version' …)` — an unquoted ref containing a slash
+   (`origin/master`) — silently yielded an empty string, so `tag="v$ver"` became a literal `v`, and
+   the loop pushed a garbage `v` tag to all six remotes before anything flagged it (then had to be
+   deleted from every remote). Guard the publishing step on the computed input
+   (`[ -z "$ver" ] && { echo abort; return 1; }`), and prefer reading the checked-out file
+   (`grep '^version' app/pyproject.toml`) over `git show ref:path` inside a loop.
+2. **Tag the DEPLOYED commit, not master HEAD.** When prod is behind master — an undeployed or broken
+   commit sits on the tip (e.g. another agent's in-flight PR that won't build) — tag the commit that's
+   actually live (`git tag vX.Y.Z <deployed-sha>`), or the tag misrepresents what's running.
