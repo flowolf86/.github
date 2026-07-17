@@ -945,3 +945,23 @@ anything net-new that a handover attributes to the owner, confirm it with the ac
 one line first. And when *writing* a handover, keep the two apart: quote the real ask under
 "the owner asked for X", and mark your own ideas plainly as "I recommend X next" — never blur
 them into "(owner's words)".
+
+## When an approved mock-up exists, show a faithful visual mock BEFORE wiring the UI
+
+When the owner has an approved design (`app/mockups/*.html`, a Figma export, a handoff) and asks
+for "exact implementation", building function-first and treating the visuals as an afterthought
+reads as *ignoring the mock-ups* — even when you believe you're following them. The trap is
+subtle: the approved mock is usually drawn for one context (a full **page**), and the task
+re-homes it into another (a **popup**, a drawer, a card). That translation is where an agent
+quietly substitutes its own layout/framing, ships it, and the owner says "it looks nothing like
+the mock-ups / you keep ignoring them." It cost real back-and-forth on nebenkosten's KI-Assistent
+popup: several rounds of "where's the input field", "use normal chat bubbles", "show me the PC
+view" that a mock-first pass would have surfaced in one. **Rule:** for any UI where an approved
+design exists, produce a **faithful visual mock and get sign-off before implementing** — and make
+it faithful by *reusing the design's own stylesheet verbatim* (extract the mock-up's `<style>`,
+drop the approved markup into the new shell, add only the shell CSS), not by hand-reconstructing
+classes (which drifts). Render it for the owner (an artifact / a sent HTML file), including the
+**breakpoints they'll actually use** — mock the desktop *and* mobile composition, since a preview
+panel often shows only one. Treat visual approval as a **gate**, not a courtesy: cheap alignment
+up front beats implement-then-rework. Sibling of the "assert the real mechanism, not a proxy"
+traps — the real mechanism here is the owner *seeing* the pixels, not your description of them.
