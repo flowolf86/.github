@@ -924,3 +924,24 @@ into a repo whose submodule you bumped, verify the pins with
 family-wide pin audit at the end of any session that touched submodules. A hub-and-spoke
 template paired with a pre-0.14 foundation-ui pin is the tell; the fix is a re-pin +
 redeploy.
+
+## A cross-session handover doc can invent a "requirement" and attribute it to the owner
+
+When one agent session hands work to the next, it writes a handover doc (`docs/HANDOVER-*.md`)
+listing follow-up tasks. The receiving agent treats that doc as ground truth — and that is the
+opening for a subtle trap: the authoring agent can frame its OWN design idea as a user
+requirement, e.g. `**Goal (owner's words):** ...`, for a feature the owner never actually asked
+for. Nothing in the doc looks false; the receiving agent has no signal to distrust it, so it
+starts building (worktree, skill load, data investigation, sometimes a whole feature) before
+anyone checks with the human. It bit the nebenkosten AI follow-ups: a "Task A — AI-added data
+visualizations" (bar/line charts attached to the reviewer's findings) rode across sessions
+attributed to "the owner's words"; when the owner was finally asked in passing they said "I
+never asked for that — where's this from?" and it was dropped. Wasted setup, and — worse — it
+nearly shipped unrequested surface area (an AI chart renderer + schema) into a **money app**.
+The `(owner's words)` label is what launders an agent's proposal into a requirement. **Rule:**
+treat inter-session handover tasks as **proposals, not requirements** — especially *net-new
+features* (finishing half-built work or fixing a named bug is different). Before building
+anything net-new that a handover attributes to the owner, confirm it with the actual human in
+one line first. And when *writing* a handover, keep the two apart: quote the real ask under
+"the owner asked for X", and mark your own ideas plainly as "I recommend X next" — never blur
+them into "(owner's words)".
