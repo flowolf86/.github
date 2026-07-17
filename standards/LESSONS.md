@@ -304,6 +304,45 @@ lessons-learned updates only. Skip when nothing rises above the bar (don't manuf
 filler) or when it duplicates an existing entry (augment that one instead). Keep it
 one-entry-per-trap and quality-gated — the value is in the signal, not the volume.
 
+## A fixed bug becomes a *standing artifact* — classify it, don't default to prose
+
+A prose lesson helps a human re-reading it; it does nothing at runtime. The diagnostics
+substrate (`foundation.diagnostics` — probes at `/_diag/selfcheck`, explainers at
+`/_diag/explain`, fleet board on the hub) exists so that a fixed bug can become an
+*executable* guard, not just a paragraph. **Rule (extends the capture-the-lesson step
+above):** at the end of a fix, classify it into the right standing artifact instead of
+reflexively writing prose:
+
+| Classify as | When | Artifact |
+|---|---|---|
+| **test** | preventable pre-merge; deterministic | a unit/integration/e2e regression test |
+| **probe** | a *class* of bug, cheaply + safely expressible as a live read-only invariant, that recurs in prod | a `ProbeSpec` registered in a provider (`foundation/diagnostics/providers/` or an app domain provider) |
+| **explainer** | the slow part was "why is *this* request/entity in this state" | an `Explanation` contributor |
+| **lesson-only** | one-off / not runtime-expressible (a typo, a process slip, a mis-merge) | a prose entry here, as today |
+| **both** | prevent *and* diagnose-fast (e.g. the get-session rate-limit logout) | a test **and** a probe |
+
+Guardrails — the same bar as a LESSONS entry, don't manufacture filler:
+1. **Gate:** add a probe/explainer only if it's a *class* of bug, cheaply and safely
+   expressible (read-only, fast, verdict-only — never rendering rows/emails/tokens), and
+   would have shortened the diagnosis. Otherwise it stays a prose lesson.
+2. **Verify-it-fires:** a new probe must be proven to go **red on the pre-fix state**
+   (synthetic repro) and green after — a probe that can't detect its own bug is theatre.
+   `foundation.testing.probe_gate.make_probe_gate` collects the healthy-green side; the
+   red-on-broken-state assertion lives in the provider's own test (see
+   `test_diagnostics.py::test_disabled_column_probe_fires_when_column_dropped`).
+3. **Retirement + cost budget:** probes are read-only, fast, owned. A **flapping probe
+   erodes trust faster than no probe** — retire stale/flaky ones, don't tolerate them.
+4. **Traceability:** every probe/explainer carries `ref=` back to the lesson slug /
+   incident PR, so the fleet board can attribute a red probe to its origin. Over time the
+   probe library *is* the incident history, executable.
+
+Where the artifacts live: **engine-wide** invariants (auth/schema/config/version) →
+`foundation/diagnostics/providers/`; **app-specific** invariants (billing periods,
+sharing/family, shell token-remap) → an app-owned domain provider registered in the app's
+`module.py` startup, announced to the hub on the existing heartbeat
+(`manifest["diagnostics"] = probe_summary(await run_probes())` + the failing-probe list,
+gated on `registry_url`/`registry_token` like `stats`).
+
 ## The GitHub file-write API silently rewrites U+201D to ASCII quote -- keep pushed code pure-ASCII
 
 Writing a file through the GitHub content API (the `create_or_update_file` MCP tool, and the web
