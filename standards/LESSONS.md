@@ -861,3 +861,27 @@ For the provider itself, if you want image/name kept fresh (or backfilled for no
 set the "override user info on sign-in" flag (`socialProviders.<p>.overrideUserInfoOnSignIn: true` in
 Better Auth) — providers re-send the picture on every login, so it self-heals on next sign-in even
 after the source data is gone (note: this also refreshes the name from the provider each login).
+
+## A stale-based branch silently REVERTS a concurrent submodule pin bump on merge
+
+A submodule gitlink (`packages/foundation`, `packages/foundation-ui`) is **tracked
+content**, so a PR carries whatever submodule SHA its branch was cut from. When two
+agents work the same repo family: agent A bumps the pin (e.g. foundation-ui 0.11.0 →
+0.14.2) and merges; then agent B merges a branch **branched before** A's bump, and
+B's merge **silently reverts the pin to the stale SHA** — B never touched the
+submodule, but its old gitlink wins. If the app's code now depends on the newer
+submodule, this breaks `master`. It bit the settings-migration session: an auth PR
+(branched pre-migration) reverted **scuba** foundation-ui 0.14.2 → 0.11.0, and the
+migrated `settings.html` includes `shell/_settings_hub.html` (a partial only in
+≥0.14.0), so authenticated `/settings` 500'd; it also downgraded **beikost** 0.14.2 →
+0.14.1. In review a pin bump and a pin *revert* are indistinguishable — a one-line
+40-hex change — and the break only shows for authed users (unauth `/settings` just
+307-redirects, masking it). The agent-lock publish lease does NOT prevent this: the
+collision is in the *content* of a stale branch, not the push race. **Rule:** before
+merging ANY PR in a repo where submodules are in play, `git fetch origin && git rebase
+origin/master` so a stale gitlink can't clobber a concurrent bump; and after any merge
+into a repo whose submodule you bumped, verify the pins with
+`git ls-tree origin/master packages/foundation packages/foundation-ui` — do a
+family-wide pin audit at the end of any session that touched submodules. A hub-and-spoke
+template paired with a pre-0.14 foundation-ui pin is the tell; the fix is a re-pin +
+redeploy.
