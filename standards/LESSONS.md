@@ -989,3 +989,35 @@ from `app/`, still with `PYTHONPYCACHEPREFIX` set to a writable tmp dir). Tell: 
 `TypeError`/`unexpected keyword argument` on a shell dataclass right after a foundation-ui bump,
 where the worktree's `git ls-tree HEAD packages/foundation-ui` differs from the main checkout's —
 that's stale-editable skew, not a real API break.
+
+## Jinja autoescape: `|e` on a `~`-operand escapes the string LITERALS too — corrupting hand-built attributes
+
+Building an HTML attribute string by concatenation and marking it safe —
+`icon_btn('edit', 'data-typ="' ~ a.typ|e ~ '"')`, later rendered `{{ attrs|safe }}` —
+looks like the safe way to inject a user value into a `data-*` attribute (the macro
+even documented "Frei erfasste Nutzerdaten MÜSSEN vorher escaped werden ...|e"). In an
+**autoescaping** Jinja2 environment it is the opposite of safe. Applying `|e` (or any
+filter that returns `Markup`) to ONE operand of the `~` concatenation makes the whole
+expression escape-aware, and Jinja then escapes the **string literals** in the same
+expression too — including the `"` attribute delimiters. So
+`'data-typ="' ~ a.typ|e ~ '"'` renders `data-typ=&#34;Kautionsrückzahlung&#34;`, and
+every value arrives at the client **wrapped in literal quotes** (`"1"` instead of `1`).
+The page renders, the element exists, but JS reading `dataset.typ` gets `"…"`: a date
+won't parse, a `<select>` value won't match, numbers are garbage — the classic "edit
+does nothing / fields not prefilled" bug. It hides three ways: (1) only the ONE row
+using `|e` breaks — sibling rows using the same `~` pattern *without* `|e` work,
+because their values (dates, cents) contain no `"`, so it reads as a one-off, not a
+pattern bug; (2) `|safe` at the end looks like it should make it literal, but the
+damage (escaped `"`) already happened during `~`; (3) the naive fix — just drop `|e` —
+makes the display correct but silently REOPENS attribute injection (a `"` in free text
+breaks out of the attribute: `data-ref="x" onerror="alert(1)"`), so neither with-`|e`
+nor without-`|e` is both correct and safe. It cost a full browser-repro loop on
+nebenkosten's "Auszahlung an Mieter" edit. **Rule:** never hand-build an HTML attribute
+string with `~` + `|e` + `|safe` in an autoescape env. To pass server data to client
+JS, emit it with **`| tojson`** (XSS-safe *and* autoescape-safe) into a JS variable and
+carry only safe scalars — an integer id — on `data-*` attributes, then look the record
+up by id client-side. If a value must sit in an attribute, let autoescape do the work
+(`attr="{{ value }}"`, a bare substitution), never a `~`-concatenation you then mark
+`|safe`. Verify the RENDERED attribute in a browser (`getAttribute`) — a value that
+comes back quote-wrapped (`"1"`) is this bug; sibling of the "assert the real mechanism,
+not a proxy" traps.
