@@ -53,6 +53,17 @@ enforced, so it is convention-enforced — follow it anyway.
 - Cut production by publishing a GitHub Release: `gh release create vX.Y.Z`. That
   triggers the release workflow (test → build+push GHCR image + auth-service →
   deploy to the VPS).
+- **A merge is not a release, and not every PR earns one.** Merging a PR to
+  `master` is decoupled from cutting production — merge freely, release
+  deliberately. When a piece of work spans **several PRs on one topic** (e.g. a
+  feature split into stages, or a batch of related fixes), land **all** of that
+  topic's PRs on `master` first, then cut **one** release for the whole topic —
+  don't release after each intermediate PR. The version bump still rides the PR
+  that makes the change user-facing; the *release tag* just waits until the topic
+  is fully merged. Release when the human asks, or when a self-contained topic is
+  complete — never reflexively after each merge. (You may still bump the version
+  in each PR as you go; a release simply ships whatever version `master` currently
+  carries.)
 - Rollback / redeploy an already-built tag:
   `gh workflow run release.yml -f image_tag=vX.Y.Z`.
 - `deploy.sh` is an emergency rsync+build fallback only — never the normal path.
