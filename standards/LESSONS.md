@@ -965,3 +965,27 @@ classes (which drifts). Render it for the owner (an artifact / a sent HTML file)
 panel often shows only one. Treat visual approval as a **gate**, not a courtesy: cheap alignment
 up front beats implement-then-rework. Sibling of the "assert the real mechanism, not a proxy"
 traps — the real mechanism here is the owner *seeing* the pixels, not your description of them.
+
+## Running an app's tests from a worktree uses the shared venv's editable submodules — the MAIN checkout's, which are often stale
+
+The concurrent-agents workflow says do non-trivial git work in a private worktree
+(`git worktree add … origin/master` + `git submodule update --init --recursive`), so the
+worktree's `packages/foundation` and `packages/foundation-ui` sit at the commits `origin/master`
+pins — current. But there is no per-worktree Python venv: you reuse the main checkout's
+`.venv`, whose **editable** install of `foundation`/`foundation-ui` resolves via a `.pth`/
+`__editable__` finder to `~/Dev/<app>/packages/*` — the **main checkout's** submodules, which
+are whatever stale commit that checkout happens to sit at (nobody ran `submodule update` there).
+So `import foundation_ui` in a worktree test run loads the *old* shell library while your
+worktree app code targets the *new* one. The failure surfaces at **collection** as an API
+mismatch — `TypeError: ShellConfig.__init__() got an unexpected keyword argument
+'settings_profile'` — which reads like a bad app/shell call or a version-pin bug, not a
+path-resolution problem, and sends you diffing shell_config against nav.py. (Same family as the
+Docker root-owned `__pycache__`/egg-info traps: the module you *think* you're running isn't the
+one on disk in front of you.) **Rule:** when running an app's suite from a worktree, prepend the
+**worktree's** package dirs to `PYTHONPATH` so imports resolve to the submodules you actually
+checked out, overriding the venv's editable finder:
+`PYTHONPATH=<worktree>/packages/foundation:<worktree>/packages/foundation-ui pytest -q` (still
+from `app/`, still with `PYTHONPYCACHEPREFIX` set to a writable tmp dir). Tell: a collection-time
+`TypeError`/`unexpected keyword argument` on a shell dataclass right after a foundation-ui bump,
+where the worktree's `git ls-tree HEAD packages/foundation-ui` differs from the main checkout's —
+that's stale-editable skew, not a real API break.
