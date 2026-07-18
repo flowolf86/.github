@@ -1021,3 +1021,29 @@ up by id client-side. If a value must sit in an attribute, let autoescape do the
 `|safe`. Verify the RENDERED attribute in a browser (`getAttribute`) — a value that
 comes back quote-wrapped (`"1"`) is this bug; sibling of the "assert the real mechanism,
 not a proxy" traps.
+
+## Inline validation on blur inserts an error box that shifts layout and eats the click — Cancel needs two clicks
+
+A form with live inline validation (validate a field on `focusout`/blur and insert an error
+message below it) has a nasty interaction with any button in the same dialog: clicking
+"Abbrechen"/"Cancel" (or even "Save") first **blurs** the focused required field, so the blur
+handler inserts the "required" error box, which **grows the layout and shifts the buttons down
+between mousedown and mouseup** — so the click lands on nothing and is lost. The user has to
+click the button **twice**: the first click only reveals the error, the second (layout now
+stable) actually activates it. It looks like the Cancel button is broken/ignored, but it is a
+layout-shift-during-click race triggered by the validation the blur itself fired. It bit every
+popup in nebenkosten that had a required field (kostenposition, liegenschaften, ...) once inputs
+became modal dialogs — the inline validator (`NBK.liveValidate`) had always validated on
+`focusout`, but only inside a dialog does the resulting reflow move the action buttons under the
+pointer. Playwright can't reliably reproduce it (its element clicks are single synthetic events,
+not a real mousedown->shift->mouseup), so it hides from e2e and only a real mouse shows it.
+**Rule:** an on-blur/focusout inline validator must NOT insert an error (and reflow) when focus
+is leaving the field to activate a **button** — check `event.relatedTarget` and early-return if
+it is (or is inside) a `<button>` (`relatedTarget.closest('button')`). Real submits still
+validate everything on click; field-to-field navigation (relatedTarget = another input) still
+validates live. More generally: never let a blur handler mutate layout above/around the control
+that is about to receive the click — reserve the error's space, position it out of flow, or skip
+it for button targets. Verify by focusing a required field and moving focus to the Cancel button
+(`el.focus()`): the error box must stay hidden. Sibling of the "held identity transform breaks
+top-layer dialog hit-testing" trap — both are "the click didn't land where it looked like it
+would" dialog-interaction bugs.
