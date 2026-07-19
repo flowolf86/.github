@@ -1067,3 +1067,31 @@ in-lease guard must **abort** if `origin/master` moved (re-rebase OUTSIDE, then
 re-acquire), never rebase while holding it. Deploys never need the lease at all
 (they're SSH to the VPS, and idempotent). If you must wrap a command in the lease,
 give it a hard `timeout` so a wedged step releases in seconds, not at the TTL.
+
+## The local-test-env trap family is now one command — `./dev`, don't hand-roll it
+
+A whole cluster of entries in this file are the *same* failure: the local test suite
+silently becomes "CI-only" because setting the environment up correctly by hand is
+error-prone, so people fall back to letting CI (the budget-capped monthly resource) be
+the first run. Those traps — SQLite-vs-Postgres, root-owned egg-info/`build`/`__pycache__`
+from Docker builds, running from the repo root and loading the production `.env`, a root
+`pytest.ini` shadowing `app/pyproject.toml`, host Python 3.13 vs the 3.12 target, the
+`pytest11` entry point not loading, `foundation-ui` installed non-editable dropping its
+`testing/*.js`, `pytest app/e2e` adopting the wrong config and killing the server thread,
+client JS never `node --check`ed, and a reused test Postgres drifting or leaking data — are
+now **mechanically prevented** by a single self-healing driver, `.standards/dev.sh`, run as
+`./dev {setup|db|test|e2e|check|clean}` (synced from this hub; the per-app `./dev` wrapper is
+a one-line delegation). It pins Python 3.12 via `uv`, editable-installs the submodules
+(foundation-ui `-e`), runs pytest from `app/` with an exported per-app localhost
+`DATABASE_URL` and `PYTHONPYCACHEPREFIX`, wipes the test DB to a clean schema before each run
+(CI-parity — a measured drop+full-migrate adds no observable time; suite runtime is 100% the
+tests, so a golden-copy/template clone would save <2s and is not worth its staleness), and
+`node --check`s the client JS. The one thing it can't self-heal — root-owned build artifacts,
+no passwordless sudo — it detects and hands you the exact `sudo rm -rf` one-liner.
+
+**Rule:** run the local suite through `./dev`, never a hand-rolled `pytest` invocation — that
+is what keeps local-green a precondition for pushing rather than a fiction. The individual
+trap entries above are **kept on purpose**: they are the rationale for each thing the driver
+does, so a future "simplification" of `dev.sh` (drop the pycache prefix, point e2e back at
+`pytest.ini`, reuse a dirty DB) can be recognized as resurrecting a known production trap.
+Edit the driver at the source in this hub, never the synced `.standards/dev.sh` copy.
