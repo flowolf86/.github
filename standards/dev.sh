@@ -134,8 +134,23 @@ cmd_db() {
       -p "${PORT}:5432" postgres:16 >/dev/null
   fi
   log "waiting for Postgres on :$PORT"
-  for _ in $(seq 1 30); do port_open && { log "Postgres ready"; return 0; }; sleep 1; done
+  for _ in $(seq 1 30); do port_open && { ensure_database; log "Postgres ready"; return 0; }; sleep 1; done
   die "Postgres on :$PORT did not become ready"
+}
+
+# A reused container may have been created with a different POSTGRES_DB than this
+# app's DSN expects (e.g. a legacy gs-test-pg with db 'gsbasecamp' when the DSN
+# wants 'gs'), so tests fail with InvalidCatalogNameError. Create the expected
+# database if it's absent; the schema is wiped and migrated fresh regardless.
+ensure_database() {
+  local cname user
+  cname="$(docker ps --filter "publish=${PORT}" --format '{{.Names}}' | head -1)"
+  user="${CREDS%%:*}"
+  [ -n "$cname" ] || return 0
+  docker exec "$cname" psql -U "$user" -d postgres -tAc \
+    "SELECT 1 FROM pg_database WHERE datname='${DBNAME}'" 2>/dev/null | grep -q 1 && return 0
+  docker exec "$cname" psql -U "$user" -d postgres -q -c "CREATE DATABASE \"${DBNAME}\"" >/dev/null 2>&1 \
+    && log "created database ${DBNAME}" || warn "could not ensure database ${DBNAME} exists on ${cname}"
 }
 
 # Deliver a clean database every run — exactly what CI gets from its fresh
