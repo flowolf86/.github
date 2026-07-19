@@ -96,6 +96,15 @@ pulling latest `master` on the VPS.
   your first test run wastes it and can leave the team unable to merge for the rest
   of the month. Run `make test` / `pytest -q` (and lint/mypy) locally first; only
   push once it passes.
+- **Run the local suite through `./dev`, not a hand-rolled `pytest`.** `./dev test`
+  (and `./dev check` for the full gate, `./dev e2e` for Playwright) is the self-healing
+  driver — synced from this hub as `.standards/dev.sh` — that pins Python 3.12,
+  editable-installs the submodules, and runs from `app/` against a throwaway per-app
+  Postgres wiped clean each run, mechanically preventing the "suite is CI-only" trap
+  family (see LESSONS). **New apps get the driver via standards sync and add a 2-line
+  root `./dev` wrapper** (`exec bash "$(dirname "$0")/.standards/dev.sh" "$@"`) as a
+  bootstrap artifact, alongside the `CLAUDE.md` / `.standards/` / `sync-standards.yml`
+  wiring. The manual invocation below is the underlying mechanism `./dev` automates.
 - **Run the unit suite from the app directory (`cd app && pytest -q`), never the repo
   root.** `env_file=".env"` is cwd-relative, so a root run loads the *production*
   `.env` and admin/registry tests fail on the CSRF origin check — failures that read
