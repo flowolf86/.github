@@ -1095,3 +1095,35 @@ trap entries above are **kept on purpose**: they are the rationale for each thin
 does, so a future "simplification" of `dev.sh` (drop the pycache prefix, point e2e back at
 `pytest.ini`, reuse a dirty DB) can be recognized as resurrecting a known production trap.
 Edit the driver at the source in this hub, never the synced `.standards/dev.sh` copy.
+
+## A root-owned `app/static/shell` silently defeats foundation-ui's dev shell-refresh
+
+foundation-ui's shell bundle (JS/CSS/fonts) is **copied** into each app's `app/static/shell`
+— not symlinked (Starlette `StaticFiles` refuses paths escaping the mount, so a symlink 404s).
+`foundation_ui.ensure_static_link()` refreshes that copy on every boot (`shutil.rmtree(target)`
+then `copytree(src)`) so edits to the shell bundle are picked up on restart. But it is
+best-effort and swallows `OSError`: if `app/static/shell` is **root-owned** (written by a prior
+Docker build, like the egg-info/`__pycache__` traps), the `rmtree` fails silently and the STALE
+copy persists forever. Every foundation-ui shell change (a `shell.js` fix, a CSS tweak) then
+**never reaches the app locally** — the app serves the old bundle, and edits appear to do
+nothing. It cost real time diagnosing why a shell.js fix wasn't served (the served copy and the
+submodule source silently disagreed). **Rule:** if a foundation-ui shell/JS/CSS change doesn't
+take effect locally, check `ls -ld app/static/shell` — a root-owned copy is the culprit; clear
+it (`sudo rm -rf app/static/shell`, no passwordless sudo so hand it to the human once) and let
+`ensure_static_link` recopy it (owned by you) on the next boot. Same family as the other
+root-owned-Docker-artifact traps.
+
+## A `DOMContentLoaded`-only init silently dies if the script loads after it fires
+
+Registering a page's whole init behind `document.addEventListener("DOMContentLoaded", fn)` with
+**no already-loaded fallback** means: if the script executes *after* `DOMContentLoaded` has
+already fired (loaded late/deferred, served from cache, or re-executed), the listener misses the
+event and nothing runs. foundation-ui's `shell.js` did exactly this — so when it happened to run
+post-DCL, the ENTIRE shell (drawer, **settings profile form**, **logout confirm dialog**,
+password form, theme/focus controls) was left uninitialised, while the top-level code (which
+defines `window.FDN`) still ran, so it *looked* loaded. Invisible for ages because nothing
+exercised the settings pages until the cross-stack e2e did — then one guard fixed the
+profile-update, logout-confirm, AND dark-mode focus-gate failures at once. **Rule:** any script
+that registers init on `DOMContentLoaded` must guard for the already-fired case:
+`if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();`.
+Tell: top-level globals exist but nothing the init wires up works, with no JS error.
