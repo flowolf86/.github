@@ -343,6 +343,21 @@ jobs:
       - name: Install Playwright Chromium headless shell
         run: playwright install chromium-headless-shell --with-deps
 
+      # The cross-stack auth e2e (foundation.testing.cross_stack_auth) boots the real
+      # Better Auth Node sidecar to drive a real login — so Node + the sidecar's deps
+      # must be present. Harmless for apps without a cross-stack test (the harness only
+      # starts the sidecar when an app's conftest opts in). Cached by package-lock.
+      - name: Set up Node (Better Auth sidecar)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/foundation/auth-service/package-lock.json
+
+      - name: Install Better Auth sidecar deps
+        working-directory: packages/foundation/auth-service
+        run: npm ci --no-audit --no-fund
+
       - name: Run E2E tests
         env:
           DATABASE_URL: postgresql+asyncpg://${{ inputs.app_name }}:test@localhost:5432/${{ inputs.app_name }}
