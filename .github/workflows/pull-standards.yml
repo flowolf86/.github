@@ -37,10 +37,10 @@ jobs:
         run: |
           mkdir -p .standards
           base="https://raw.githubusercontent.com/flowolf86/.github/master/standards"
-          for f in CONVENTIONS.md LESSONS.md I18N.md claude-settings.json agent-lock.sh; do
+          for f in CONVENTIONS.md LESSONS.md I18N.md claude-settings.json agent-lock.sh dev.sh; do
             curl -fsSL "$base/$f" -o ".standards/$f"
           done
-          chmod +x .standards/agent-lock.sh
+          chmod +x .standards/agent-lock.sh .standards/dev.sh
 
       - name: Open / update standards-sync PR
         id: cpr
@@ -57,9 +57,10 @@ jobs:
             Updates `.standards/CONVENTIONS.md`, `.standards/LESSONS.md`, and `.standards/I18N.md` — the
             files this repo's `CLAUDE.md` imports — plus `.standards/claude-settings.json`,
             the canonical Claude Code permission allowlist (consumed by the
-            `install_permissions.py` helper), and `.standards/agent-lock.sh`, the
-            shared concurrent-agent publish lease. Edit the source in the hub, not these
-            copies. (No-op PR if already in sync.)
+            `install_permissions.py` helper), `.standards/agent-lock.sh`, the
+            shared concurrent-agent publish lease, and `.standards/dev.sh`, the
+            self-healing local test-loop driver (`./dev test|check|e2e`). Edit the
+            source in the hub, not these copies. (No-op PR if already in sync.)
           add-paths: .standards/
           delete-branch: true
 
