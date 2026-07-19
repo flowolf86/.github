@@ -87,7 +87,7 @@ check_root_owned_artifacts() {
     if [ "$(stat -c '%u' "$d" 2>/dev/null || echo "$me")" != "$me" ]; then
       blockers+=("$d")
     fi
-  done < <(find packages -maxdepth 2 \( -name '*.egg-info' -o -name build \) -type d 2>/dev/null)
+  done < <(find packages app -maxdepth 2 \( -name '*.egg-info' -o -name build \) -type d 2>/dev/null)
   if [ "${#blockers[@]}" -gt 0 ]; then
     warn "Root-owned build artifacts (from a prior Docker build) block the editable install."
     warn "Run this once, then re-run 'dev setup':"
