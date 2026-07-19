@@ -338,7 +338,9 @@ jobs:
           pip install -e "packages/foundation" --quiet
           [ -d packages/foundation-ui ] && pip install -e packages/foundation-ui --quiet || true
           pip install -e "app/[e2e]" --quiet
-          pip install pytest-timeout pytest-rerunfailures --quiet   # hang guard + flaky-retry
+          # hang guard + flaky-retry; psycopg2 for the cross-stack auth harness'
+          # sync schema-wipe / verified-user seeding (foundation.testing.cross_stack_auth).
+          pip install pytest-timeout pytest-rerunfailures psycopg2-binary --quiet
 
       - name: Install Playwright Chromium headless shell
         run: playwright install chromium-headless-shell --with-deps
