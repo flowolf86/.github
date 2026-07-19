@@ -1047,3 +1047,23 @@ it for button targets. Verify by focusing a required field and moving focus to t
 (`el.focus()`): the error box must stay hidden. Sibling of the "held identity transform breaks
 top-layer dialog hit-testing" trap — both are "the click didn't land where it looked like it
 would" dialog-interaction bugs.
+
+## Never hold the agent-lock lease across a hang-prone step (rebase/build/deploy)
+
+The `standards/agent-lock.sh` publish lease (see the "Concurrent agents" section in
+CONVENTIONS) is an atomic-`mkdir` mutex with a TTL — it serialises the publish
+critical section, but it does NOT bound how long a holder holds it. So if you run
+anything hang-prone *while holding it*, you block every other agent for as long as
+you're wedged (up to the 15-min TTL). It bit a topbar rollout: the publish flow
+acquired the lease and then did a `git fetch && git rebase origin/master` *inside*
+it; master had moved, the rebase hung (conflict / editor prompt behind a `| tail`
+pipe), and the command sat holding the lease for the full 2-minute timeout before
+its `trap` released it — the other agent, mid-release, was blocked the whole time.
+The lease was still correct (never two holders; the TTL guarantees a wedged holder
+eventually frees), but a seconds-long critical section had become minutes. **Rule:**
+do ALL hang-prone work — `git rebase`, test suites, `ci-local.sh`, `deploy.sh` —
+*outside* the lease. Acquire it only for the actual push+merge (seconds), and the
+in-lease guard must **abort** if `origin/master` moved (re-rebase OUTSIDE, then
+re-acquire), never rebase while holding it. Deploys never need the lease at all
+(they're SSH to the VPS, and idempotent). If you must wrap a command in the lease,
+give it a hard `timeout` so a wedged step releases in seconds, not at the TTL.
