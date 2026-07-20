@@ -184,6 +184,16 @@ _pytest_unit() {
 cmd_test() { _ensure_env; cmd_db; reset_db; log "unit suite (from app/, DB :$PORT)"; _pytest_unit "$@"; }
 
 cmd_e2e() {
+  # Serialize e2e MACHINE-WIDE. The Better Auth sidecar binds a fixed port and each
+  # run launches a headless browser (~0.5–1 GB); two concurrent e2e runs collide on
+  # the port and exhaust memory (browser crashes with ERR_INSUFFICIENT_RESOURCES).
+  # A single flock across all apps' e2e keeps runs sequential on a shared machine.
+  local lock="${TMPDIR:-/tmp}/wl-e2e.lock"
+  exec 9>"$lock"
+  if ! flock -n 9; then
+    warn "another e2e run holds the lock ($lock) — waiting for it to finish…"
+    flock 9
+  fi
   _ensure_env
   cmd_db
   reset_db
