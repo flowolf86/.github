@@ -1249,3 +1249,35 @@ repo-permission problem. **Rule:** push workflow-file changes over **SSH**
 (`git push git@github.com:<owner>/<repo>.git <branch>`), which uses your key, not the
 scope-limited token. (`gh pr merge --squash` server-side is unaffected — the scope check is
 only on the client push.)
+
+## An agent that generates an irreplaceable secret must hand it to the human
+
+Setting up the VPS backup module, a Claude session generated the restic
+passphrase with `openssl rand -base64 32`, wrote it to `backup/.env` on the VPS,
+and let the first run `restic init` the repository with it. The README it wrote
+in the same PR said "store it in a password manager; losing this makes the
+backups unrecoverable" — and then it never surfaced the value to the human, who
+found out 24 days later that they had never had it.
+
+The result: the only copy of the key to every backup lived on the single machine
+those backups exist to protect against losing. Had the VPS died in that window,
+every snapshot on the Storage Box would have been permanently unreadable, with
+the backup reporting healthy the whole time.
+
+Machine-generated secrets are the dangerous case precisely because they are good:
+44 random base64 characters cannot be reconstructed, remembered, or guessed. A
+human-chosen password would have been weaker and recoverable.
+
+**Rules:**
+- When you generate a credential that cannot be regenerated — a backup
+  encryption passphrase, a root recovery key, a wallet seed — **surface it to the
+  human in that same turn**, say plainly that it is irreplaceable, and say where
+  it must be stored. Do not consider the task complete until it exists somewhere
+  the machine it protects cannot take with it.
+- Prefer schemes with more than one way in. `restic key add` gives a repository a
+  second passphrase the human chooses, so an auto-generated one being lost is
+  survivable; most secret systems have an equivalent.
+- Auditing a backup means auditing **key custody**, not just whether snapshots
+  exist and restore. "Can I still read this if the source host is gone?" is the
+  question — and if the only copy of the key is on that host, the answer is no,
+  no matter how green the restores look.
