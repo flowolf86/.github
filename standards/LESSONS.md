@@ -1194,3 +1194,34 @@ broken — while a truly dead one reports the same thing.
 - Before believing a zero, check whether the CLI filters by default (`-a`,
   `--all`, `--include-*`). A zero that means "hidden" and a zero that means
   "broken" are indistinguishable in a report.
+
+## `restart: unless-stopped` can silently not come back after a reboot
+
+A host reboot brought back 20 of 21 containers. The exception was **Traefik** —
+so all six apps were healthy, every database was up, and the entire site was
+unreachable, because the reverse proxy is the single point of entry. It stayed
+down until someone ran `docker start traefik` by hand 11 minutes later.
+
+Traefik exited cleanly (code 0) during shutdown like everything else. On boot,
+dockerd logged `Loading containers: start.` → `Restoring containers: start.` →
+`Loading containers: done.` with **zero references to that container ID**
+anywhere in the daemon log. It was never even considered for restore.
+
+`unless-stopped` means "restart unless the container was manually stopped", and a
+stop performed while the daemon itself is shutting down can leave a container in
+that state — non-deterministically, which is why 20 siblings with the identical
+policy came back. `always` restarts unconditionally on daemon start.
+
+Note the shape: every health signal was green. The apps were up, healthy, and
+serving on localhost; only the ingress was missing. A container-level check that
+asks "are the app containers running?" passes perfectly during a total outage.
+
+**Rules:**
+- Entry-point and infrastructure services (reverse proxy, IDS, mail relay) use
+  `restart: always`, never `unless-stopped`. Where being down means *everything*
+  is down, unconditional restart is worth more than honouring a manual stop.
+- After any reboot, verify the **externally observable** thing (an HTTPS request
+  from off-box), not the container list.
+- Verify a restart-policy change by restarting the Docker daemon
+  (`systemctl restart docker`) — it exercises the same restore path as a boot,
+  so you learn now rather than during the next unplanned reboot.
