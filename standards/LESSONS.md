@@ -1163,3 +1163,34 @@ retention policy — not just "prune said OK", and (c) restored every source int
 throwaway database and checked table/row counts. Coverage rots silently too: new
 apps must be added to the backup in the same PR that deploys them, or they run in
 production for months with no backup at all (four of six apps did).
+
+## A service that starts before its data source reports healthy forever
+
+CrowdSec on the VPS ran for three weeks with **no datasource at all**. It started
+before Traefik had created `/var/log/traefik/access.log`, logged one line about
+the missing file, and then looked perfectly healthy: process up, agent registered,
+heartbeats every 60s, community blocklist downloading and applying 2400 bans. What
+it never did was read a single log line, so no local scenario could ever fire.
+`cscli metrics` showed empty Acquisition/Parsers/Buckets tables while the Local API
+tables had data — the tell. Restarting once the file existed fixed it instantly.
+
+This is the same shape as `restic forget` keeping everything and `docker image
+prune` freeing nothing: **the failure mode of a monitoring/cleanup component is
+silence, which is identical to its success mode.** You cannot notice it by
+watching; you have to assert on throughput.
+
+Compounding it, the obvious health check lies in the reassuring direction:
+`cscli decisions list` **hides community-blocklist (CAPI) decisions unless `-a`
+is passed**, so a working CrowdSec reports "0 active decisions" — which reads as
+broken — while a truly dead one reports the same thing.
+
+**Rules:**
+- A file-tailing datasource that does not exist at start-up is skipped, not
+  retried. If service A tails a file written by service B, either guarantee the
+  ordering or verify ingestion after every restart of A.
+- Health-check components on **work done, not liveness**: lines read, snapshots
+  per source, bytes reclaimed. "The process is up" and "the last run exited 0"
+  both pass while the component does nothing.
+- Before believing a zero, check whether the CLI filters by default (`-a`,
+  `--all`, `--include-*`). A zero that means "hidden" and a zero that means
+  "broken" are indistinguishable in a report.
