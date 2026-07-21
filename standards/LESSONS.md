@@ -1127,3 +1127,39 @@ profile-update, logout-confirm, AND dark-mode focus-gate failures at once. **Rul
 that registers init on `DOMContentLoaded` must guard for the already-fired case:
 `if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();`.
 Tell: top-level globals exist but nothing the init wires up works, with no JS error.
+
+## A backup can report success every night while backing up nothing
+
+The VPS restic backup ran green-looking for ~24 days while three independent
+defects hollowed it out — each invisible because the *symptom* of a broken backup
+is silence. Found only by auditing the live repository, not the logs.
+
+1. **`set -e` turns one broken source into a skipped retention pass.** The script
+   ended with an invalid `restic backup --stdin --stdin-filename k <path>` (restic
+   rejects `--stdin` *plus* a path). It aborted there every night, so the last
+   source was never captured **and `restic forget --prune` never ran at all**. A
+   backup script must treat each source as independently fallible: record the
+   failure, keep going, always run retention, and exit non-zero with a summary.
+2. **`restic forget` silently keeps everything when snapshots come from
+   `docker compose run`.** Default grouping is `host,paths`; `compose run` assigns
+   a *fresh random container hostname* per run, so every snapshot forms a group of
+   one where `--keep-daily 7` keeps it forever. Prune reports success and deletes
+   nothing (measured: 136 snapshots, 28 distinct hostnames, 28 groups of one for a
+   single source). **Rule:** `restic forget --group-by paths`, and pin `hostname:`
+   in the compose service.
+3. **`pg_dump | restic backup` hides a failed dump behind restic's exit code**, so
+   a truncated or empty dump is snapshotted as if it were good. Dump to a file,
+   assert it is non-empty, *then* snapshot it.
+
+Two more traps in the same family, hit while fixing the above: with one snapshot
+per source, bare `latest` means *whichever source ran last* — always select with
+`restic dump/restore --path /x`, or the restore silently reads the wrong snapshot;
+and `docker compose up -d <container-name>` is not valid (`<app>-db` is the
+container, `db` is the service).
+
+**Rule:** a backup is unverified until you have (a) read the tail of the last run
+and seen an explicit success marker, (b) counted snapshots per source against the
+retention policy — not just "prune said OK", and (c) restored every source into a
+throwaway database and checked table/row counts. Coverage rots silently too: new
+apps must be added to the backup in the same PR that deploys them, or they run in
+production for months with no backup at all (four of six apps did).
