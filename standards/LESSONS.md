@@ -1225,3 +1225,27 @@ asks "are the app containers running?" passes perfectly during a total outage.
 - Verify a restart-policy change by restarting the Docker daemon
   (`systemctl restart docker`) — it exercises the same restore path as a boot,
   so you learn now rather than during the next unplanned reboot.
+
+## Migrating an app onto the shared `app-ci.yml` exposes it to gates it never ran — and workflow files need SSH to push
+
+Converging a repo with a **bespoke `ci.yml`** onto the shared reusable workflow
+(`flowolf86/.github` → `app-ci.yml`) is not a clean swap: the shared workflow runs
+**mypy** and a **coverage-gated `quality` job** the app's old CI never did, so a
+never-type-checked app fails the migration on day one. nebenkosten had **90 mypy errors**
+its old lint (compile + `node --check` only) never surfaced — the migration was blocked
+until every one was fixed. **Rule:** before replacing an app's bespoke CI with the thin
+caller, run the *new* gates locally first (`./dev` gives mypy; measure coverage to pick a
+truthful `coverage_threshold`) — treat the latent debt as part of the migration's scope,
+not a surprise the first CI run reports. Fix type errors behavior-neutrally (annotation
+widening, `type[Any]` for generic model holders, `_dreq`/`cast` for schema-nullable-but-
+logically-required columns) and prove it with the **unchanged** test suite; a green suite
+after the type pass is what certifies you changed no behavior (critical on a money app).
+
+Second trap in the same task: **pushing a branch that adds/edits `.github/workflows/*` over
+an HTTPS remote is rejected** — `refusing to allow an OAuth App to create or update workflow
+… without workflow scope` — because the cached HTTPS token lacks the `workflow` scope. The
+code push works; only the workflow-file push fails, which reads like a branch-protection or
+repo-permission problem. **Rule:** push workflow-file changes over **SSH**
+(`git push git@github.com:<owner>/<repo>.git <branch>`), which uses your key, not the
+scope-limited token. (`gh pr merge --squash` server-side is unaffected — the scope check is
+only on the client push.)
