@@ -1353,3 +1353,31 @@ app, don't trust that autogenerate emitted it — read the generated `upgrade()`
 column rendered with the import it needs — autogenerate writes `foundation.db.jobs_schema.UTCDateTime(...)`
 as a bare reference and does **not** add the import). Same family as "a service that boots is not a
 service that works": presence in one import graph is not presence in the one that ships.
+
+## A session-scoped Postgres advisory lock survives the pooled connection's return — never gate an irreversible state-advance on it
+
+The `foundation.jobs` cron scheduler guarded its "only one process schedules" invariant with
+`pg_advisory_lock` (session-scoped) taken on whatever connection the per-tick `AsyncSession`
+checked out, and — the fatal part — advanced its window (`last_check = now`) *outside* the
+lock check. Two things conspire on Postgres (SQLite hides both, since the lock short-circuits
+to "held" there and the engine's unit tests are SQLite-only):
+1. A **session-scoped** advisory lock is NOT released when an `AsyncSession`/connection returns
+   to the pool — only a transaction rollback runs; the lock persists on that backend. So it
+   leaks (re-acquired every tick on a reused connection) and, worse, ties "who holds the lock"
+   to "which pooled connection you happened to check out".
+2. With `pool_size >= 2` under request load, a tick can check out a *different* backend than the
+   one already holding the lock (busy serving a request) → `pg_try_advisory_lock` returns false →
+   the scheduling pass is skipped — **but the window advanced anyway**, so that minute's fires
+   were silently dropped. Dedupe can't help: it prevents duplicates, not drops.
+
+The bug is invisible in tests (SQLite never takes the lock) and intermittent in prod (depends on
+pool checkout races), so it reads as "a reminder occasionally doesn't fire" — the worst kind.
+**Rules:** (1) for a lock whose lifetime should be *one unit of work*, use
+`pg_try_advisory_xact_lock` inside an explicit transaction — it auto-releases at transaction end,
+so it can never leak across a pooled connection's return; a session-scoped lock needs an explicit
+`pg_advisory_unlock` and a connection you actually control. (2) NEVER advance irreversible state
+(a watermark, a cursor, `last_check`) on a tick that failed to acquire its lock — advance only
+inside the "lock held" branch, so a lost tick leaves its work for a later tick that wins. (3) When
+the correctness-critical path is Postgres-only and the unit tests are SQLite, the concurrency
+guarantee is UNTESTED by those units — assert it in the Postgres app suite (two workers / a held
+lock), and don't mistake green SQLite units for a proof the lock works.
