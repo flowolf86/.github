@@ -1281,3 +1281,46 @@ human-chosen password would have been weaker and recoverable.
   exist and restore. "Can I still read this if the source host is gone?" is the
   question — and if the only copy of the key is on that host, the answer is no,
   no matter how green the restores look.
+
+## A DB-backed job queue needs compare-and-set on *completion*, not just on claim
+
+Building the `foundation.jobs` substrate, the claim step was correctly made safe
+with `SELECT … FOR UPDATE SKIP LOCKED` — two workers can never grab the same row.
+But the completion writes (`_finish`/`_reschedule`) were unconditional
+`UPDATE jobs … WHERE id = ?`, and that is a silent lost-update. A crash reaper
+returns rows stuck in `running` (their `locked_at` older than a threshold) back to
+`pending`; if a *live* handler outruns that threshold — trivially possible, because
+the per-job `timeout_s` is unbounded while the reaper's `older_than_s` is fixed — the
+reaper requeues a job that is still executing, a second worker claims it, and then
+the first worker's late `UPDATE … WHERE id=?` clobbers the second run's state. If the
+second worker had rescheduled a retry, that retry is overwritten to `done` and lost;
+the job silently never completes its real work. `FOR UPDATE SKIP LOCKED` does nothing
+here because the two writers touch the row at *different times*, not concurrently. It
+hides in tests because the defaults (reaper 300s ≫ timeout 60s) make it unreachable
+until someone sets a long `timeout_s` or a short reap interval. **Rule:** every write
+that completes or reschedules a claimed unit of work must be a compare-and-set on the
+state the claim established — `WHERE id = ? AND status = 'running'` (ideally also
+matching the `locked_at`/lock token the claim stamped) — so a reaper/re-claim race
+resolves to a safe no-op (a double-run under the idempotent at-least-once contract),
+never a clobber. And keep the invariant `reap older_than_s > max handler timeout_s`
+so a live handler is never reaped in the first place; the compare-and-set is the
+safety net for when that margin is wrong, not a substitute for it.
+
+## `f"{type(exc).__name__}: {str(exc)[:N]}"` is truncation, not redaction
+
+The jobs substrate stored a failed job's error in a long-lived `last_error` column
+(it appears in backups and admin views), and the "redaction" helper was
+`f"{type(exc).__name__}: {str(exc)[:200]}"` with a docstring claiming it carried
+"never args that could carry data." That is false: `str(exc)` *is* the exception's
+args joined. A handler raising `ValueError(f"bad email {user.email}")`, or a
+SQLAlchemy `IntegrityError`/`DataError` whose string embeds the offending SQL
+parameters, writes that email/token/parameter verbatim (merely capped at 200 chars)
+into a column that then ships to the Borg backup and renders in the hub admin. A
+length cap limits volume, not sensitivity — the PII is usually in the first few
+characters. **Rule:** when a value must be a *redacted verdict* (a stored error, a
+probe `detail`, anything surfaced to an operator or persisted to a backup), derive it
+only from safe sources — the exception **type name** and your own fixed strings —
+never the arbitrary `str(exc)`. Full detail belongs in the structured logs (the
+access-controlled, correlation-id-linked debug channel), not in a durable/ surfaced
+field. Sibling of the "assert the real mechanism, not a proxy" family: truncating a
+sensitive string is a proxy for redacting it, and the two are not the same.
