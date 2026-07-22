@@ -1324,3 +1324,32 @@ never the arbitrary `str(exc)`. Full detail belongs in the structured logs (the
 access-controlled, correlation-id-linked debug channel), not in a durable/ surfaced
 field. Sibling of the "assert the real mechanism, not a proxy" family: truncating a
 sensitive string is a proxy for redacting it, and the two are not the same.
+
+## A model on a shared Base is invisible to Alembic autogenerate unless its module is imported
+
+The Foundation engine declares its own tables on `foundation.db.auth_schema.Base`, and
+`alembic_env._merged_metadata` prepends that `Base.metadata` to each app's tree so a
+single migration covers engine + app tables. Shipping the jobs substrate, `JobRecord`
+was declared on that same `Base` — but in its **own** module (`foundation/db/jobs_schema.py`),
+and `_merged_metadata` imported only `auth_schema`. A SQLAlchemy model only registers on
+`Base.metadata` when its **module is imported** (the class body has to run), so `JobRecord`
+was absent from the metadata autogenerate compares against. The result: `foundation` shipped
+v0.18.0, an app bumped the pin and ran `alembic revision --autogenerate`, and the table it
+was adopting **was silently not in the generated migration** — autogenerate emitted unrelated
+drift instead, with no error anywhere. It cost a full release cycle (a v0.18.1 patch) to find,
+because every check that *should* have caught it passed for the wrong reason: the engine's own
+`test_table_is_registered_on_engine_base` asserted `'jobs' in Base.metadata.tables` and was
+green — but only because that test file imports `jobs_schema` directly at module top, so the
+model was registered *in the test process*. The one path that mattered — the migration
+metadata assembled with only `auth_schema` imported — was never exercised. **Rules:** (1) the
+single place that assembles autogenerate metadata must import **every** module that declares a
+table on the shared Base (or import a package `__init__` that imports them all) — a table split
+into its own module needs an explicit `import …  # noqa: F401 — registers X on Base`; (2) test
+this in a **fresh subprocess** that imports *only* the migration entrypoint (`_merged_metadata`)
+and asserts the table is present — an in-process test is worthless here because sibling test
+files import the model's module and mask the gap; (3) when adopting an engine-owned table in an
+app, don't trust that autogenerate emitted it — read the generated `upgrade()` and confirm the
+`create_table` you expected is actually there (and, as a bonus catch, that a custom `TypeDecorator`
+column rendered with the import it needs — autogenerate writes `foundation.db.jobs_schema.UTCDateTime(...)`
+as a bare reference and does **not** add the import). Same family as "a service that boots is not a
+service that works": presence in one import graph is not presence in the one that ships.
