@@ -1385,3 +1385,47 @@ lock), and don't mistake green SQLite units for a proof the lock works.
 ## Mocking a third-party send/encode library leaves its format contract untested — exercise the real lib once, up to the network boundary
 
 The Web Push channel (`foundation.notify.push`) is tested with `pywebpush.webpush` monkeypatched — correct for unit tests (no network, no real VAPID). But every one of those tests would have stayed green if `generate_vapid_keys()` emitted the private key in a format `pywebpush` does not accept (e.g. raw base64url when it wanted PEM, or vice-versa): the mock never parses the key, so the *format contract* between our key-gen and the real library is exercised by nothing. The bug would surface only at the first real push in production — a channel that "passed all tests" yet cannot send. Same family as the email channel (mock `_send_sync` and you never prove the message actually serialises) and the auth-service "boots but has no schema" trap: a green mock proves your code calls the boundary, not that the boundary accepts what you hand it. **Rule:** when you mock a third-party library that *encodes/signs/serialises* something (push encryption, JWT signing, a key format, a wire protocol), add ONE test that drives the **real** library with your real inputs as far as it goes without a network — for Web Push, call `webpush(...)` with a generated key and a dummy endpoint and assert the failure is a *network/endpoint* error, NOT a key-parse error (that proves the key was accepted and signing ran). The assertion is inverted: you're proving the library got *past* the format-critical step. One such test per boundary catches the class of "format mismatch invisible behind the mock" bugs that otherwise ship to prod.
+
+## A design-token typo can produce a SILENTLY DEAD animation — CSS fails invalid values quietly, so it reads as "instant by design"
+
+`animation: dp-rise var(--m3-spring-spatial-default);` looks right and is completely
+dead. CSS `animation`/`transition` shorthands take the FIRST time value as the duration;
+a spring *easing* token (`cubic-bezier(...)`/`linear(...)`) is not a time, so the duration
+stays `0s` and **the animation never runs**. There is no console warning, no build error,
+no type error — CSS discards invalid values silently. The correct pairing is always
+`var(--x-dur) var(--x)`. This shipped in **eleven** places in foundation-ui's pickers at
+once (the DatePicker popover, both dialogs, the month-grid enter, the TimePicker ring
+cross-fade and the dial hand), and none of it was noticed for one reason: a missing
+animation looks *exactly* like a deliberate design choice. Nobody files "this popover
+appears instantly" as a bug. It is the motion sibling of *"Changing a CSS variable's VALUE
+does nothing if no rule consumes it"* — a token that is defined, referenced, and inert.
+**Rule:** whenever a design system splits motion into duration and easing tokens, treat
+"easing token used where a duration belongs" as a first-class lint, not a code-review
+hope — one static test over every `.css`/`.svelte` file (regex the `animation:`/
+`transition:` shorthands and assert every declaration carrying a spring/easing token also
+carries a `-dur` token or a literal ms/s) catches the whole class in seconds and keeps
+catching it. More generally: **an animation that never runs is invisible to every gate you
+already have** — type checks, builds and render tests all pass — so it needs a guard that
+asserts the *shape of the CSS*, and the guard must be proven to go red on the broken form
+before you trust it.
+
+## A component library with zero tests hides a specific bug class: state that is captured once
+
+A Svelte 5 (or React/Vue) component whose prop is captured into local state —
+`let x = $state(prop)`, `const id = prop ?? genId()` — compiles perfectly, type-checks
+perfectly, packages perfectly, and renders correctly *on first paint*. It is only wrong on
+the SECOND value: the component silently ignores every later change to that prop. Nothing
+in a build pipeline can see it. foundation-ui carried six of these (a date picker frozen on
+its first selection, a tooltip that ignored `placement`, text fields that ignored `id`),
+plus two variants of the same shape: an id counter that lived in the *instance* scope
+despite a comment claiming module lifetime — so every field on a page rendered the same id
+and **every `<label for>` resolved to the first field** — and a `let el` read inside a
+`$derived` that evaluates before `bind:this` assigns, which silently removed the keyboard
+tab-stop from an unselected radio group. All of it shipped, because the package's entire
+safety net was "does it compile". **Rule:** a component library needs a test layer whose
+first job is *not* coverage but this class — mount, change a prop, assert the DOM followed;
+mount twice, assert generated ids differ. A dozen such tests are worth more than a hundred
+snapshot tests, because snapshots re-render from scratch and therefore cannot see a
+capture-once bug either. Pair it with static contract tests over the CSS (see the dead-
+animation entry above) so the non-rendering defects are covered too, and verify every new
+guard goes **red on the pre-fix code** before keeping it.
