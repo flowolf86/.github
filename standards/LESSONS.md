@@ -1765,3 +1765,49 @@ that does not exist.
   `/api/account/me`, `/auth/logout`, `/healthz`) before adding a route.
 - An identity fetch that fails should degrade **visibly**. `catch {}` around it turned a hard
   contract mismatch into a UI that merely looked a bit empty.
+
+## A route mounted over a table your layer doesn't migrate is a 500 armed by a version bump
+
+The Foundation engine mounted `/api/notifications*` from `build_app` for **every** app, but
+shipped no migration for the tables those routes read — each app was expected to run
+`alembic revision --autogenerate` and hand-reconcile it (a documented adoption step, with three
+known traps of its own). **scuba-app** bumped its pin to `v0.20.0` for unrelated reasons, skipped
+the step, and served `UndefinedTable` on all seven routes in production. It went unnoticed only
+because the UI that calls them didn't exist yet — the notifications bell would have been its
+debut, in a different repo, weeks later. The trap is the **split of responsibility**: the library
+took the route-mounting decision but left the schema obligation with the consumer, so a pin bump
+alone arms the failure and nothing in review, CI, or the app's own tests can see it. A shared
+library's tables are not the consumer's problem to remember. **Rule:** whatever layer *mounts* a
+route owns the schema that route reads — provision it yourself, from code, idempotently, on every
+boot (`create_all(..., checkfirst=True)` against the tables you own, run from the app factory's
+lifespan), so adopting a version is the *only* step. Keep it deliberately separate from the
+consumer's migration tree — engine revisions would have to interleave with N independent linear
+histories, which is the friction you're removing. Two properties make it safe: **fail loud** (a
+DDL error aborts startup; a red deploy beats silently serving 500s) and **tables only, never
+columns** (`create_all` never `ALTER`s, so a new column on an owned table still needs explicit
+`ADD COLUMN IF NOT EXISTS` — this is not a migration framework). If you can't own the schema,
+don't mount the route unconditionally: make it opt-in. Corollary for audits: "which apps actually
+have the table?" is a one-command check (`git ls-tree origin/master packages/<lib>` + list the
+migrations, per app) and is worth running before *any* claim that a library change is safe to pin.
+
+## A workflow-created tag cannot trigger another workflow — `GITHUB_TOKEN` events start no runs
+
+A two-stage release chain — `auto-release.yml` watches `master` for a version bump and runs
+`gh release create vX.Y.Z`; `release.yml` triggers on `push: tags: v*` and builds the image — looks
+correct and is silently broken. GitHub's recursive-workflow prevention means **any event raised
+using `secrets.GITHUB_TOKEN` does not start a new workflow run**. So the tag appears, the release
+appears, and the second workflow never fires. There is no error, no skipped run, nothing in the
+Actions list — the absence is the only evidence, and you have to think to look for it. In
+foundation-api-engine this ran undetected from 2026-07-17: `v0.18.0`, `v0.18.1`, `v0.19.0` and
+`v0.20.0` were all tagged and **none** built an image, while a stale comment in the workflow
+asserted the opposite ("release.yml then picks up the tag"). It compounded with a second,
+independent fault — `default_workflow_permissions: read` on the repo versus `permissions:
+packages: write` in `release.yml`, the documented `startup_failure` trap — so even the runs that
+*had* fired earlier were failing. **Rule:** never chain workflow → tag/release → workflow via
+`GITHUB_TOKEN`. Either do the build in the *same* job that creates the tag, or push the tag with a
+PAT / GitHub App token (which does raise events). Verify the chain by its **output**, not its
+intent: after a release, assert the artifact exists (`gh api .../packages/...`, or the image's
+digest/created-at), because "the workflow that should have run" leaves no trace when it doesn't.
+And audit `gh run list --workflow=<second>.yml` for a suspicious *gap* — a workflow whose last run
+predates several releases is the tell. Sibling of "a green deploy that pulled an unchanged pinned
+tag is a no-op that looks identical to success": verify the thing, never the pipeline's intent.
