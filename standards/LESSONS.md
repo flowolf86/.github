@@ -1727,3 +1727,41 @@ was no longer looking at.
 - When retiring such tests, re-home the RULE (here: `/api/controls` both-states, the
   `/impressum` 302, and a suite-wide "every rendered i18n key resolves" check) rather than
   deleting coverage — and note explicitly what is left uncovered.
+
+## Porting to an SPA turns render-context data into an API contract nobody has ever tested
+
+A server-rendered template gets the signed-in user for free: the route hands it `actor` and the
+Jinja shell prints `actor.display_name`. Nothing crosses HTTP, so nothing has a wire format. Port
+that app to an SPA and the same data must now travel over an endpoint — and **that endpoint's
+real response shape has never been exercised by anything**: not a unit test, not e2e, not a type.
+
+In scuba this produced a signed-in user with no name, no email and no avatar in the drawer, the
+rail and the settings hero. Google login worked perfectly; the identity simply never rendered.
+
+The trap underneath it is sharper. `/api/account/me` is owned by the **engine**
+(`foundation/auth/router.py`), and `build_app` registers engine routes **before** the app's own
+routers — so FastAPI always matches the engine's handler. The app *also* declared that exact
+path, returning a different shape:
+
+```py
+# app/routers/account.py — has never executed once
+return {"ok": True, "user": {"display_name": ..., "email": ..., "image": ...}}
+```
+
+The engine answers flat: `{user_id, display_name, email, image}`. The SPA was written by reading
+the app's own source — the obvious, correct-looking thing to do — asked for
+`me.user.display_name`, got `undefined`, and both call sites swallowed it in a `catch {}`. A
+shadowed route handler is worse than a missing one: it is executable documentation of a contract
+that does not exist.
+
+**Rules:**
+- When porting server-rendered → SPA, list every value the templates received from the render
+  context (identity, permissions, feature flags, counts) — each becomes an API contract with **no
+  existing coverage**. Write a test pinning each one's real shape as part of the port.
+- **Verify an endpoint's response by CALLING it, never by reading the app's handler.** The engine
+  may own the path. `curl` it once with a real session before writing the client.
+- Never redeclare an engine-owned route in an app: the app's copy silently loses. If you need a
+  different payload, use a different path. Grep the engine's routers (`/api/me`,
+  `/api/account/me`, `/auth/logout`, `/healthz`) before adding a route.
+- An identity fetch that fails should degrade **visibly**. `catch {}` around it turned a hard
+  contract mismatch into a UI that merely looked a bit empty.
