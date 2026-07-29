@@ -1696,3 +1696,34 @@ untouched base ref and record the result. If it is red, fix or explicitly ring-f
 writing a line of feature code, and never let a pre-existing failure be diagnosed as yours.
 Corollary: `./dev check` does **not** include e2e (it runs unit + coverage + jscheck +
 typecheck), so "check is green" is not "the gate is green" — run `./dev e2e` too.
+
+## The local unit suite and the shipped image test DIFFERENT frontends
+
+A companion to the e2e entry above, and worse, because it reaches the unit suite. The SPA mount
+is conditional: `module._mount_spa` is a no-op unless `SPA_DIR` holds a build. A **source
+checkout has no build**, so `./dev test` serves Jinja. The **shipped image contains the build**
+(the Dockerfile copies it in), so the SPA shadows the page routes and they return a static
+`index.html`. The same test file therefore exercises two different frontends depending on where
+it runs — and `./dev` only ever shows you one of them.
+
+Found when `deploy.sh`'s in-image test gate aborted a release with **9 failures against a
+locally-green suite**. Every one asserted rendered Jinja markup (`"sac-chip" in r.text`,
+`href="/impressum"`, `data-i18n="…"` — the last being a Jinja mechanism the SPA does not use at
+all).
+
+The dangerous half was not the failures. In the toggle tests, the `hidden_when_off` assertions
+**passed vacuously in the image**: the SPA shell contains neither `"sites-map"` nor
+`"sac-chip"` whatever the toggle says, so `assert "sites-map" not in r.text` succeeded for the
+wrong reason. Half of a kill-switch's coverage was quietly reporting success about a page it
+was no longer looking at.
+
+**Rules:**
+- A conditional mount means "green locally" is not "green as shipped". Keep an **in-image test
+  gate** (`deploy.sh` runs the suite inside the built image against a throwaway Postgres) and
+  treat it as the authority — it is the only thing that sees what you actually ship.
+- Any assertion of the form `assert <marker> not in response.text` is a landmine after a
+  frontend port: it passes when the page is *missing entirely*. Prefer asserting the positive
+  state, or assert the response is the page you think it is before checking its contents.
+- When retiring such tests, re-home the RULE (here: `/api/controls` both-states, the
+  `/impressum` 302, and a suite-wide "every rendered i18n key resolves" check) rather than
+  deleting coverage — and note explicitly what is left uncovered.
