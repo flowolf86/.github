@@ -1429,3 +1429,270 @@ snapshot tests, because snapshots re-render from scratch and therefore cannot se
 capture-once bug either. Pair it with static contract tests over the CSS (see the dead-
 animation entry above) so the non-rendering defects are covered too, and verify every new
 guard goes **red on the pre-fix code** before keeping it.
+
+## A green suite proves nothing until you know WHICH implementation it exercised
+
+Porting an app's frontend (Jinja → Svelte SPA) puts a *new* implementation behind the *same*
+URLs. The engine's SPA mount is deliberately conditional — `module._mount_spa` is a no-op
+unless `SPA_DIR` holds a build — so a source checkout keeps working on the old pages. The e2e
+conftest never set `SPA_DIR`, and the test runner never built the frontend. Result: **every
+e2e run served the OLD frontend**, including the five M3 audit gates whose entire job is to
+police the rendered UI.
+
+So "70 e2e passed" was reported truthfully after every change during a full frontend port, and
+said *nothing whatsoever* about the thing being built. The suite was green while measuring the
+renderer being deleted. Nothing looks wrong: the suite passes, the app boots, the URLs match.
+Pointing the conftest at the build flipped it to **31 failed / 39 passed** — none of them
+regressions, all of them pre-existing truth that had been invisible.
+
+**Rule:** the moment a new implementation is served behind existing URLs in ANY environment,
+repoint the e2e suite at it and treat every prior result as evidence about the old one. Make a
+missing build a hard error (`SPA_E2E_REQUIRED=1`) rather than a silent fallback, so the suite
+can never quietly regress to testing nothing. Generalises beyond frontends: any migration
+behind a feature flag, adapter, or conditional mount should begin by asking which side the
+tests actually hit.
+
+## Server-side gates evaporate when a static SPA shadows the route
+
+In a server-rendered app, a feature toggle is often enforced *by not emitting markup*:
+`sites_map` off meant the map library and its container were never written into the page,
+`media_uploads` off meant no upload form, `sac_panel` off meant a metric was never computed.
+Once the SPA shadows those routes, the route returns a static `index.html` and **that page
+render never happens again**. Every one of those gates silently stops working: no error, no
+log. An admin flips a kill-switch in the hub and the feature stays on — and for a toggle whose
+purpose was suppressing third-party requests (map tiles), "off" now leaks exactly what it was
+meant to prevent.
+
+**Rule:** before porting any screen, grep the templates and routers for every server-side gate
+— feature toggles, `show_*` flags, permission branches, anything deciding whether markup is
+*emitted* — and enumerate them. Each needs a client-readable equivalent (a `GET /api/controls`
+returning each toggle's resolved state) plus a test proving BOTH states still work **through
+the SPA**. A gate enforced by "we didn't render it" is enforced by nothing once a static
+fallback serves the page. Corollary for the both-states testing rule: after a port those tests
+must drive the SPA path, or they keep passing while exercising a page nobody is served.
+
+## An IDOR test run as the dev-stub user can never fail
+
+`repositories._is_dev` grants the dev-stub user a blanket ownership bypass, and the shared
+`client` fixture authenticates as exactly that user. So the obvious ownership test — create a
+row for `second_user_id`, GET it as `client` — returns **200 by design**, for every record in
+the database.
+
+One app's only HTTP-level IDOR test had lived with this since it was written. Its assertion
+was `assert r.status_code in (200, 404)` — every plausible outcome, so it could never fail —
+with a comment explaining the stub bypass "for now". It reads as a documented compromise; it
+is a test that costs CI time and cannot report a defect, guarding the one bug class where
+silence is most expensive. Sibling tests dodged it by probing the *repository* directly with a
+fake context, which is real but never exercises the HTTP layer where the vulnerability is
+reachable.
+
+**Rule:** probe ownership as a genuine THIRD identity that owns nothing — the engine's
+non-prod `fdn_test_user` cookie resolves ahead of the dev stub in
+`foundation.auth.deps._resolve_current_user`, so it gets no bypass:
+
+```py
+INTRUDER = {"Cookie": "fdn_test_user=intruder@evil.example"}
+r = await client.get(f"/api/dives/{dive_id}", headers=INTRUDER)
+assert r.status_code == 404
+```
+
+Assert the exact status, never a set covering every outcome, and additionally assert the record
+is **unchanged** afterwards — a mutation probe that 404s but still writes is what a read-only
+check misses. Applies to every app in the family; all share this fixture and this bypass.
+
+## A dark-DEFAULT app loses its whole palette to the design system on specificity
+
+`foundation-ui`'s tokens ship a complete default palette whose dark half is declared as
+`:root[data-theme="dark"]` — specificity **(0,1,1)**. An app that is dark-DEFAULT naturally
+puts its palette on a bare `:root` — **(0,1,0)**. The theme bootstrap and the runes theme
+manager always stamp `data-theme` explicitly (correctly — see the `color_scheme` entry above),
+so in dark mode **the package's rule outranks the app's and repaints the entire application in
+the design system's default brand.** Observed: a teal-and-navy diving app rendering in
+sage-green on green-black, everywhere, in every dark screenshot.
+
+It hides from everything:
+- **Light mode is flawless** — the app's `:root[data-theme="light"]` ties on specificity and
+  wins on source order. Every light screenshot looks perfect.
+- The app's CSS is correct in isolation; the defect exists only in the cascade, between two
+  files, under one attribute value.
+- **No audit gate can see it.** Contrast/field/focus gates verify that colours *relate*
+  correctly — sage-on-black passes contrast exactly as well as teal-on-navy. They never verify
+  the colours are *yours*.
+
+**Rules:** a dark-default app must declare its dark palette at the SAME specificity the design
+system uses (`:root, :root[data-theme='dark']` — keep the bare `:root` for the pre-bootstrap
+instant), and app CSS must load after the package's. Then assert token **identity** per theme
+in e2e — `getComputedStyle(document.documentElement).getPropertyValue('--paper')` must equal
+the app's own value under both `data-theme` values. Two lines, and the only check of this
+class that exists.
+
+## Before declaring "the shared package must change", read the app that already migrated
+
+Twice in one migration I concluded a defect was package-level and would have to be fixed in
+`foundation-ui` — parking the app's release behind another repo. Both were wrong, and both were
+answered in minutes by reading the sibling app that had already completed the same migration:
+
+- **Logout lost its confirmation** because `SettingsHub` renders a bare `<form method="post">`
+  with no prop to suppress it. But the package already ships `dialog.confirm()` (whose
+  docstring even says *"pass `danger: false` for a neutral accent confirm (e.g. logout)"*), the
+  `<Modal/>` that `Shell` already mounts, and the `settings.logout.modal.*` strings sitting
+  unused. The migrated app had hit this and solved it app-side. Fix: intercept the bubbled
+  submit, confirm, then `form.submit()`.
+- **Motion coverage failed** on `m3-drawer__dest` / `m3-rail__dest` — package chrome. But the
+  migrated app carries **none of the six M3 audit-gate files**; it replaced them with
+  SPA-appropriate tests. The "package gap" was a Jinja-era gate the reference migration had
+  deliberately retired.
+
+**Rule:** "this needs a package change" is a claim with a high cost — it blocks a release on
+another repo and another person's work. Before making it, (1) grep the package's exports for a
+mechanism that already does the job, and (2) open the most-recently-migrated sibling app and see
+what it actually does. The answer is usually there, and the second check also tells you whether
+a failing gate is a real quality signal or an artefact the migration was supposed to drop.
+
+## Audit gates encode the OLD implementation's DOM — budget for updating them
+
+After repointing e2e at the SPA, the field gate failed on every form page with
+`input.m3-field__input = 1:1`, which reads as "the port shipped invisible fields". Measuring
+both frontends showed why: the old `.float-field` put its border **on the input**, while the
+design system paints it on a **sibling `.m3-field__outline` span**. The gate measures the
+input, so it scores 1:1 against *any* package field in any variant — it cannot pass, and
+"making the gate green" would have meant abandoning the design system's own markup.
+
+The investigation was still worth doing, because it exposed a real deviation underneath: **19
+field call sites had no `variant` at all** and were silently taking the package default
+(`filled`) where the original was outlined. Invisible in a diff, obvious in a screenshot.
+
+**Rules:** when a port moves onto a design system, expect the audit gates to encode the prior
+implementation's DOM and plan to update or retire them as part of the work. Before filing a
+gate failure as a product defect, check whether its selector still addresses the element that
+carries the paint. And never let a component's DEFAULT variant decide your design — pass it
+explicitly at every call site, because a package default is not a decision your app made and
+will differ silently from the screen you are matching.
+
+## A typed `\uXXXX` escape reaches disk as the literal character
+
+`standards/I18N.md` requires the five delimiter-confusable smart quotes to be written as
+`\uXXXX` escapes in locale files, because tooling round-trips can rewrite U+201D into an ASCII
+quote and ship a `SyntaxError` that breaks the whole UI. The rule is sound — but **the obvious
+way to comply with it does not work.** Tool arguments arrive as JSON, so an escape typed into
+an edit payload is decoded *by the transport* and lands on disk as the literal character.
+Verified directly: editing a file intending the six characters `ä` produced the two UTF-8
+bytes `303 244`. Nothing warns you; the file still parses and renders correctly and looks right
+in the diff. It has simply, silently, stopped obeying the rule that protects it.
+
+**Rule:** never hand-type `\uXXXX` into a locale file through an editing tool. Emit the escapes
+with a script (`python3`/`node`, e.g. `json.dumps(..., ensure_ascii=True)`), then **byte-verify**
+— `grep -P '[^\x00-\x7F]'` over the string values must come back empty and a smart-quote grep
+must return 0. Worth a test in the suite, since it is invisible to review.
+
+## Every rendered i18n key must be proven to exist — nothing else checks it
+
+A `t('some.key')` whose key exists in neither the app catalogue nor the chrome catalogue does
+not raise: it renders the **raw key text** into the UI. In an SPA nothing catches this —
+pytest never loads the Svelte sources, the locale gate only compares the catalogue files
+against *each other*, and the bundler happily compiles a call to a key with no value. A static
+sweep of one ported app found **nine** such keys live (`dive.unknown.site`, `gear.retired`,
+`cert.edit`, date/time validation messages…).
+
+**Rule:** add a filesystem test that parses every `t('…')` literal out of the frontend sources
+and asserts each resolves against the merged catalogues. Pure filesystem, no DB, no node, so it
+rides the normal unit suite. Pair it with assertions that catalogue values are pure ASCII and
+carry no literal smart quotes. Dynamic call sites (`t(someVar)`) can't be checked statically —
+report them rather than failing on them.
+
+## Parallel agents in one checkout must run NO git commands
+
+Fanning work out across agents partitioned by disjoint file trees is effective — but giving
+each agent "its own branch" in the **shared checkout** is incoherent. HEAD, the index and the
+working tree are process-global; three agents switching branches merely shuffle everyone's
+uncommitted edits onto whichever branch was switched to last. Observed: HEAD ended on the third
+agent's branch carrying the first agent's backend edits, all three refs at the same commit.
+Nothing was lost (`git switch` carries changes across), but the isolation was pure illusion and
+one `git stash`, `git reset` or conflicting switch would have destroyed real work.
+
+**Rules:** parallel agents in a shared checkout run **no** git command that moves HEAD or the
+index (`switch`, `checkout`, `pull`, `branch`, `stash`, `reset`) and never commit or push — the
+orchestrator owns all git state and collects the combined diff. **File-ownership boundaries**
+are what prevent collisions; branches add nothing and actively mislead. If genuine git isolation
+is required, each agent needs its own `git worktree`, which is a different and more expensive
+setup worth choosing deliberately. Same rule for builds: concurrent agents must not run the
+project build (they race on shared output) — have them verify by type/syntax check and let the
+orchestrator run the single authoritative build.
+
+## A fan-out of agents dies as a cohort, and burns budget several times faster
+
+Five agents run concurrently hit the session usage limit **within the same minute** and all
+terminated mid-task. None of their reports arrived, so their work landed on disk with zero
+self-verification. Parallelism that buys wall-clock time costs budget headroom proportionally,
+so a fan-out is most likely to die exactly when the work is largest — and it fails as a cohort:
+you do not lose one area and keep three, you lose whatever everyone was mid-way through plus
+all their reports at once. Recovery is not "resume an agent", it is reconstructing from the
+filesystem what exists and what is half-written.
+
+**Rules:** the orchestrator checkpoints **defensively** — the moment agents report OR die,
+commit whatever is on disk as an explicit `wip(...)` commit, push it, and tag it
+(`git tag -f recover/<slug>`). Uncommitted-on-disk survives a usage reset but not a linter
+reset or a stray branch switch. The WIP message must state plainly what is COMPLETE, what is
+MISSING and what is UNVERIFIED — the next session starts with an empty context, and a
+checkpoint that overstates its completeness is worse than none. Prefer staging a large fan-out
+in waves so a budget wall costs one wave rather than all of it.
+
+## A port collision points your verification at a DIFFERENT application
+
+Booting an app for a visual check on port **8096**, waiting for `/healthz` to return 200, and
+driving a browser at it produced a confident measurement: "the dashboard has 0 FABs" — a
+serious dropped-affordance finding. The screenshot showed **Jellyfin's login page**. 8096 is
+Jellyfin's default port, a media server already held it, the app's own bind had failed, and
+every probe — including the health check that "proved" the server was up — had gone to someone
+else's application. Every measurement was internally consistent and completely wrong.
+
+**Rules:** bind ad-hoc verification servers to a port confirmed free (`ss -ltn | grep :PORT`)
+and avoid the 8000–8100 band entirely — it is dense with defaults (8080 proxies, **8096
+Jellyfin**, 8086 InfluxDB). **Every** browser probe must first assert it is on the right
+application (`page.title()`, a known brand string, a known DOM marker) before any other
+measurement is trusted: a health check proves *something* is listening, never that it is yours.
+
+## A placeholder with no owner in the fan-out ships as a hole
+
+A screen was deliberately written as a stub in the scaffolding PR, with a comment promising the
+full version would arrive "with the feature-area port". The feature agents were then
+partitioned by area — and **no agent owned that route**. The stub survived every gate: it
+compiled, had no unresolved i18n keys, rendered fine, and the unit suite had no opinion about
+it. It was caught only because an e2e test happened to assert an affordance the original
+carried (its FAB). The port inventory listed all eight of that screen's affordances; the PR
+note promised them later; neither fact was attached to anything that could fail.
+
+**Rule:** never leave a placeholder without an owner in the partition. Either finish the screen
+in the PR that creates it, or add it explicitly as a work item in the fan-out with the same
+"port EVERY affordance from the inventory" brief every other area gets. A TODO in a comment is
+not a task, and a stub that compiles is indistinguishable from a finished screen to every
+automated check you have.
+
+## After a submodule-pin bump, re-install that submodule before trusting a red suite
+
+Fast-forwarding an app to a `master` that bumped `packages/foundation` made the entire unit
+suite fail at **collection** with `ModuleNotFoundError: No module named 'croniter'`. The
+dependency *is* declared in the engine's `pyproject.toml`, and `./dev` runs
+`uv pip install -e packages/foundation -e packages/foundation-ui -e app/[dev] -e app/[e2e]` on
+every invocation — yet the new transitive dep never landed. Re-running
+`uv pip install -e packages/foundation` **alone** installed it immediately.
+
+Why it misleads: the failure is a bare `ModuleNotFoundError` from deep inside the engine's
+import chain (`foundation.notify` → `foundation.jobs` → `croniter`), so it reads as a broken
+engine release or a missing app requirement, and sends you into the wrong repo.
+
+**Rule:** if a suite goes red at *collection* right after a pin bump, suspect the local venv
+before the code — re-install the bumped submodule on its own, then re-run.
+
+## When the Actions budget is exhausted, `master` can be red — establish the baseline first
+
+With CI unavailable, several PRs merged to an app's `master` without ever running. The result:
+a full local gate on the **untouched** `master` failed its own coverage floor (63.42% against
+65%). Anyone starting a feature there would inherit a red baseline and reasonably attribute it
+to their own changes.
+
+**Rule:** step zero of any substantial piece of work is to run the full local gate on the
+untouched base ref and record the result. If it is red, fix or explicitly ring-fence it before
+writing a line of feature code, and never let a pre-existing failure be diagnosed as yours.
+Corollary: `./dev check` does **not** include e2e (it runs unit + coverage + jscheck +
+typecheck), so "check is green" is not "the gate is green" — run `./dev e2e` too.
