@@ -1811,3 +1811,38 @@ digest/created-at), because "the workflow that should have run" leaves no trace 
 And audit `gh run list --workflow=<second>.yml` for a suspicious *gap* — a workflow whose last run
 predates several releases is the tell. Sibling of "a green deploy that pulled an unchanged pinned
 tag is a no-op that looks identical to success": verify the thing, never the pipeline's intent.
+
+## A local runner weaker than its CI is worse than none — it looks like coverage while testing nothing
+
+`make test-ts` in foundation-api-engine runs `npm test`: no database, no coverage gate. CI runs
+`npm run test:cov` **with a `postgres:16-alpine` service**. Both of the auth-service's integration
+suites are gated on `TEST_DATABASE_URL` (`const describeDb = TEST_DATABASE_URL ? describe :
+describe.skip`), so locally they **silently self-skip** — and those are the only tests that touch a
+database, written precisely because the sidecar once shipped with no schema at all. The local
+command exits 0, prints passing tests, and has never once exercised the thing most likely to
+break. That is strictly worse than having no local runner: a missing runner makes you careful, a
+lying one makes you confident. It also means the *only* place the truth existed was a
+budget-capped shared resource, so when Actions ran out the repo became unverifiable.
+
+Running the real CI invocation locally for the first time immediately found a second bug the
+weaker runner had been hiding: the two integration files **share one Postgres**, and
+`schema.integration.test.ts`'s `beforeEach` does `DROP TABLE IF EXISTS "rateLimit", jwks,
+verification, account, session, "user" CASCADE`. vitest parallelises across files by default, so
+one file drops the other's tables mid-test. It fails **nondeterministically and differently per
+runtime** — 2 failures on Node 24, a different 1 on Node 20, and **0 with
+`--no-file-parallelism`** — which is why it read as interpreter skew before it read as a shared-
+fixture race. CI had been green on luck (runner core count, timing), i.e. the gate was flaky in the
+direction that never alerts anyone. Same root cause as the pytest entry above, different language
+and runner: **a shared test database is a serial resource**, and test frameworks parallelise by
+file without being told otherwise.
+
+**Rules:** (1) the local command must run **exactly** what CI runs — same services, same script,
+same flags, same pinned runtime versions — and CI must be *derived from* that command, never the
+other way round; a CI step with no local equivalent, or a local step weaker than its CI
+counterpart, is a repo bug to fix before the next PR. (2) Audit for skip-gated tests
+(`describe.skip`, `pytest.mark.skipif`, `if not os.environ.get(...)`) when judging whether a local
+run proved anything — a suite that reports "60 passed" while silently skipping the DB-backed half
+is the tell, so **print skip counts and treat a nonzero count locally-but-zero-in-CI as a failed
+verification**. (3) Any suite sharing one database across test files must serialise
+(`--no-file-parallelism`, `-p no:xdist`) or give each worker its own database — and prove it by
+running it repeatedly, since a passing parallel run is evidence of nothing.
