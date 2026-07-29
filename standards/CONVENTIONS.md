@@ -89,13 +89,39 @@ pulling latest `master` on the VPS.
   that leaks when it should be dark, is exactly the bug the toggle exists to
   prevent. This applies to app-declared controls (hub control station), platform
   flags (maintenance, family switcher), and any per-app feature gate.
-- **Always run the full test suite locally and get it green BEFORE pushing or
-  opening a PR — every time, not just when the Actions budget is low.** Local-green
-  is a *precondition* for triggering CI, never a fallback. CI is a shared,
-  budget-capped resource (see LESSONS — budget resets monthly); using a push/PR as
-  your first test run wastes it and can leave the team unable to merge for the rest
-  of the month. Run `make test` / `pytest -q` (and lint/mypy) locally first; only
-  push once it passes.
+- **Local verification is a SUPERSET of CI. This is the rule; everything else in
+  this section is how you satisfy it.** Not "the tests I usually run", not "the
+  suite" — *every check CI performs*, run locally, **under the runtime versions CI
+  pins, with the same services, the same flags, and the same commands**. If CI runs
+  three jobs, local-green means you ran three jobs. Waiting for CI must never be
+  the only way to learn whether a change works, because CI is budget-capped and
+  goes away for weeks at a time (see LESSONS); a repo whose truth lives only in CI
+  is a repo you cannot ship from in the second half of the month.
+
+  Four obligations follow, and they are not optional:
+
+  1. **One command runs the whole gate.** Every repo exposes a single entry point
+     — `./dev check`, `make test` — that runs *everything* CI runs. Invoking the
+     pieces by hand is how jobs get silently skipped. Never hand-roll `pytest`,
+     `vitest`, or `npm test` when the repo has a driver.
+  2. **CI is derived from local, never the reverse.** The Makefile / `dev.sh` is
+     the source of truth; the workflow mirrors it. **A CI step with no local
+     equivalent is a bug in the repo** — fix it before your next PR, don't route
+     around it. Equally: a local step *weaker* than its CI counterpart (no
+     database, no coverage gate, fewer flags) is the same bug wearing a disguise,
+     and it is worse because it looks like coverage.
+  3. **Claiming green requires enumerating.** A PR that says "local-green" lists
+     **each CI job and its local result**. "Tests pass" is not a claim, it is a
+     vibe. If some part genuinely cannot run locally, name that part, say why, and
+     say what you ran instead — never let the reader infer full coverage from a
+     partial run.
+  4. **Match CI's pinned versions.** Same Python minor, same Node major, same
+     Postgres major. A suite that is green on your host and red on CI's runtime
+     was never verified — and the reverse (green on CI, red locally) usually means
+     CI is passing by luck, which is worth finding.
+
+  Local-green is a *precondition* for triggering CI, never a fallback, and never
+  "just when the budget is low."
 - **Run the local suite through `./dev`, not a hand-rolled `pytest`.** `./dev test`
   (and `./dev check` for the full gate, `./dev e2e` for Playwright) is the self-healing
   driver — synced from this hub as `.standards/dev.sh` — that pins Python 3.12,
