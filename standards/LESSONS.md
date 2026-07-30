@@ -1846,3 +1846,63 @@ is the tell, so **print skip counts and treat a nonzero count locally-but-zero-i
 verification**. (3) Any suite sharing one database across test files must serialise
 (`--no-file-parallelism`, `-p no:xdist`) or give each worker its own database — and prove it by
 running it repeatedly, since a passing parallel run is evidence of nothing.
+
+## Re-expressing an approved design's stylesheet onto another component library drifts — load it instead
+
+When a redesign is handed over as a **stylesheet plus rendered comps** (nebenkosten's
+„Kontor": `v2.css` over the app's own `styles.css`, 54 `.dc.html` screens), that CSS *is*
+the spec — exact values, already agreed. The instinct is nevertheless to re-express it onto
+whatever component library the app uses (here: M3 classes from the shared design system,
+because a house rule said all components come from it). **Every re-expression drifts, and the
+drift is silent**, because a reconstruction is never exactly as narrow as the original. It
+bit three times in one session, with three different symptoms and one cause:
+
+1. **Tokens that nothing reads.** `v2.css` zeroes `--shape-*`/`--r-*`; the M3 components read
+   `--m3-shape-*`, defined as literal dp values that do NOT derive from them. 33 component
+   files stayed rounded inside a square design, and the same applied to `--shadow*` vs
+   `--m3-elevation-0..5`. Three of the zeroing lines had no consumer at all.
+2. **Selectors that match nothing.** `v2.css` §7 styles `.shell-rail` (the Jinja shell). The
+   Svelte `Shell` renders `NavigationRail` → `.m3-rail*`. Porting §7 selector-for-selector
+   would have styled nothing. Also: a flat `.m3-tab` override LOSES to the package's own
+   Svelte-scoped `.m3-tab.svelte-hash` (0,2,0 vs 0,1,0) — re-declaring *tokens* works at any
+   specificity, overriding a *property* does not.
+3. **Reconstructions that are broader than the original — the worst one.** The design
+   uppercases only `.kpi-row .kpi > .lbl:first-child` (the KPI title). The hand-written rule
+   said `.kpi .lbl`, so every KPI *sub-line* rendered in capitals. Nobody notices from a
+   token check; it took a side-by-side with the comp. Worse, once the real stylesheet was
+   finally loaded verbatim, these leftovers did not become redundant — they became **active
+   bugs fighting the spec**.
+
+**Rules.**
+- If the design ships a stylesheet, **load it verbatim** and emit **its** class names. Copy
+  it in unedited, with a header saying it is the spec and must not be tidied; replace it
+  wholesale when the design ships a new one.
+- App CSS then carries only what is genuinely yours (bundled fonts, deliberate deviations,
+  overrides of the design's own gaps). Deleting a reconstruction is a fix, not a regression.
+- Before choosing translation over adoption, **count**: `97` of `v2.css`'s selector blocks
+  targeted classes the app's own markup emits, `81` the shell's. More than half was free.
+- A house rule of "all components from the design system" can be in direct conflict with the
+  existing lesson "reuse the approved design's stylesheet verbatim; hand-reconstructing
+  drifts". **Surface that conflict to the owner instead of silently picking one** — the
+  answer here was to lift the component rule.
+- Verify with an instrument, not screenshots: render comp and implementation at the same
+  viewport, compare **computed values of named design facts**, and give the instrument a
+  `--selftest` that compares the comp with itself and must report zero drift. A probe that
+  cannot pass its own null case proves nothing. (Do not pixel-diff: different DOM and
+  content make it noise.) When a fact differs, report the **cause** property first — a
+  heading size difference presents as a `letter-spacing` delta when tracking is set in `em`.
+
+## An agent's own `pgrep`/`pkill -f` pattern matches the shell running it
+
+`pgrep -f "dev.sh check"` matches the wrapper process whose command line *contains that
+string* — i.e. the very command doing the polling. An `until ! pgrep -f …; do sleep; done`
+waiter therefore waits on itself and never exits: two background tasks sat in an infinite
+loop while their log files stayed empty, and a status check reported "still running" for a
+gate that had never started. The destructive form is worse: `pkill -f "port 8097"` killed the
+agent's own shell mid-command (exit 144), silently aborting the compound command that
+followed it. **Rules:** never poll with a pattern that appears in your own command line —
+wait on a completion MARKER the job writes (`echo "EXIT=$?" >> log`), or record the PID and
+wait on that. And a waiter must be able to observe failure: `until curl -sf …` with no
+death-check spins for its whole timeout when the process it is waiting for has already
+crashed. Ask of every wait loop: *if the thing I am waiting for died right now, would this
+ever exit?*
