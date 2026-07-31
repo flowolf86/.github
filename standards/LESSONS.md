@@ -1906,3 +1906,39 @@ wait on that. And a waiter must be able to observe failure: `until curl -sf …`
 death-check spins for its whole timeout when the process it is waiting for has already
 crashed. Ask of every wait loop: *if the thing I am waiting for died right now, would this
 ever exit?*
+
+## `<form method="dialog">` + a submit button = a save that silently posts nothing
+
+`method="dialog"` makes a submit **close the dialog and send nothing** — no request, no
+error, no console warning. The dialog closes exactly as it would after a successful save,
+so the screen looks like it worked and the user walks away believing the record exists. In
+nebenkosten's Svelte port this shape sat in **18 write dialogs across 6 screens**, including
+*creating a Liegenschaft* (the first thing anyone does in the app) and *creating an
+Abrechnungsjahr* (the entrance to the whole settlement run). Every one of those screens was
+green: unit tests, build, e2e, and they rendered real seeded data correctly — because every
+test asked whether a screen **shows** what the API returns, and none asked whether a button
+**does** what its label promises. Screenshots and fidelity comparisons cannot see it either;
+the rendered pixels are identical to a working form. It is invisible in review too, since
+the markup reads as an ordinary form. The sibling shape is `openMask('mask-x')` where no
+`<dialog id="mask-x">` exists: `getElementById` returns null, the optional call swallows it,
+and the primary action of the screen is a button that does nothing (this is how "Zählerstand
+erfassen" sat inert, carried over from a comp that never defined its dialog — "invent
+nothing" was the wrong call when the screen's own copy sends the user there from three
+places). **Rule:** a dialog form either **writes** — `onsubmit` handler, no `method="dialog"`
+(it would close before the API answered), close only on success — or its submit is a close
+button and its label says so. Guard the class mechanically with a DB-free structural test
+over the route sources, not by review: scan for `<form method="dialog">` containing a
+`type="submit"` whose label is not in a small close-only allowlist, for `openMask` targets no
+`<dialog id>` defines, and for `<button>`s with no handler, no submit and no `disabled`. A
+control that is genuinely unavailable must be visibly `disabled`, never silently inert.
+
+**Corollary — prove the guard goes RED on the pre-fix state, or it is theatre.** The first
+version of that structural test passed on the known-broken file. Cause: the comment stripper
+was `re.compile(r"<!--.*?-->|/\*.*?\*/|^[ \t]*//.*$", re.DOTALL | re.MULTILINE)` — `re.DOTALL`
+is **global to the pattern**, so it also let the *line*-comment branch's `.*` cross newlines
+and swallow the entire file from the first `//` onward. Every check then ran against an empty
+string and passed, reporting a clean sweep over source it had never read. Use `[\s\S]` on the
+block-comment branches instead of the global flag. The general trap: a scanner that
+accidentally matches nothing is indistinguishable from a codebase with no defects — always
+run a new guard against a stashed pre-fix revision (`git stash push -- <file>`) and watch it
+fail before trusting a pass. Same family as "assert the real mechanism, not a proxy".
