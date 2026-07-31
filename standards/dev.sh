@@ -199,6 +199,26 @@ cmd_e2e() {
   reset_db
   log "installing playwright chromium (idempotent)"
   "$PYBIN" -m playwright install chromium >/dev/null 2>&1 || warn "playwright install skipped"
+
+  # Build the SPA before the e2e run, for apps that have one.
+  #
+  # Without this the app serves NOTHING from the SPA — `module._mount_spa` is a
+  # no-op when the build is absent — and every address quietly falls through to
+  # the other frontend. The suite then either fails with symptoms that point
+  # anywhere but here (a design-token test reading an empty custom property, a
+  # font resolving to Times) or, worse, passes against the wrong frontend
+  # because both render the same headings.
+  #
+  # It went unnoticed for a long time precisely because a human running e2e
+  # locally has usually just built by hand, and CI had not run.
+  # The script cd's to the repo root at startup, so these paths are relative.
+  if [ -f frontend/package.json ]; then
+    log "building the SPA (e2e must serve the real build)"
+    ( cd frontend \
+      && { [ -d node_modules ] || npm ci; } \
+      && npm run build ) || die "SPA build failed — e2e would test the wrong frontend"
+  fi
+
   log "e2e suite (repo root, -c pytest-e2e.ini, DB :$PORT)"
   PYTHONPYCACHEPREFIX="$PYCACHE" DATABASE_URL="$LOCAL_DSN" \
     "$PYBIN" -m pytest -c pytest-e2e.ini app/e2e "$@"

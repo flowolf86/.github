@@ -1906,3 +1906,26 @@ wait on that. And a waiter must be able to observe failure: `until curl -sf …`
 death-check spins for its whole timeout when the process it is waiting for has already
 crashed. Ask of every wait loop: *if the thing I am waiting for died right now, would this
 ever exit?*
+
+## An e2e suite that never builds the SPA silently tests the OTHER frontend
+
+`./dev e2e` installs Playwright, resets the database and runs pytest — but it did
+not build the Svelte SPA. `module._mount_spa` is a **no-op when the build is
+absent**, so every address falls through to the Jinja frontend and the suite
+tests the thing it was written to replace. Both frontends render the same German
+headings and the same seeded names, so content assertions pass either way; only
+SPA-specific ones fail, and they fail with symptoms that point anywhere but here
+(a design-token test reading an empty custom property, a font resolving to Times
+New Roman — the same tell as the "changing a CSS variable's VALUE does nothing"
+trap). It hid for months because a human running e2e locally has usually just
+built by hand, and CI had not run while the Actions budget was exhausted. When
+finally checked on a clean worktree, **4 of 9 e2e tests were already red on
+`master`** — a suite believed green for weeks. **Rule:** any repo whose app has a
+`frontend/` must build it as part of the e2e command, not as a step the runner is
+trusted to remember (now in `standards/dev.sh`'s `cmd_e2e`, gated on
+`frontend/package.json` so non-SPA apps are unaffected). Belt and braces: the app
+sets `SPA_E2E_REQUIRED=1` so a missing build is a hard boot error, and the e2e
+conftest asserts the served page references `/_app/` before running screen tests
+— otherwise the tests pass *vacuously* against the wrong frontend, which is worse
+than failing. Corollary for any migration: "the suite is green" means nothing
+until you have confirmed the suite is exercising the new thing.
