@@ -1942,3 +1942,61 @@ block-comment branches instead of the global flag. The general trap: a scanner t
 accidentally matches nothing is indistinguishable from a codebase with no defects — always
 run a new guard against a stashed pre-fix revision (`git stash push -- <file>`) and watch it
 fail before trusting a pass. Same family as "assert the real mechanism, not a proxy".
+
+## An SPA route that shadows a server-rendered page also shadows its SIDE EFFECTS
+
+When an app flips from server-rendered pages to a Svelte SPA, the mount registers the SPA
+routes **before** the old page routers, so the SPA silently wins every shadowed address. That
+is the intended mechanism, and the templates are usually left in place on purpose ("the old
+templates stay dormant"). The trap is that a page handler is rarely *only* a renderer: it
+also **does** things on GET — accept an invite, create a family on first login, seed a
+default, stamp a "last seen". Shadowing keeps the address answering 200 with a friendly
+screen while every one of those side effects silently stops happening. Nothing errors,
+nothing logs, and the SPA page that replaced it is usually a static card whose own comment
+still asserts that "the backend handles this" — an assumption the shadowing invalidated.
+
+Five instances surfaced in a single day across three apps once CI was able to run again:
+**beikost** `/join/{token}` and `/join-family/{token}` — the shadowed handlers held the ONLY
+invite-acceptance logic (validate token → insert `ChildPermission`/`FamilyMember` → bump
+`uses`), so invitations had been silently un-acceptable in production since the flip; the
+same app's `onboarding.ensure_family` was called only from the deleted `index()`, so no new
+account had been given a family either. **nebenkosten** shipped a `+layout.svelte` importing
+`../../../app/static/styles.css` while the Dockerfile's node stage copied only `frontend/`,
+making the IMAGE unbuildable (below); its unit tests read Svelte sources the runtime image
+does not ship; and the shared `app-ci.yml` e2e job never built the SPA at all, so e2e had not
+run in CI for **any** frontend app since the migration.
+
+**Rule:** flipping an address to the SPA is a **behaviour** change, not a routing change.
+Before registering an SPA route over a server-rendered one, read the handler it shadows and
+list what it DOES besides render; every side effect needs an explicit home (a JSON endpoint
+the SPA calls, or a hook on the first authenticated request) BEFORE the shadow goes up.
+Delete the old handler in the same change — a dormant handler is what lets the gap hide, and
+if deleting it breaks something you have just found the side effect you missed. Grep the
+shadowed handlers for writes (`session.add`, `+= 1`, `commit`) rather than trusting that a
+GET is read-only.
+
+## A green local gate says NOTHING about whether the artefact can be built
+
+Every local check — `pytest`, `mypy`, `npm run build`, the whole `./dev check` — runs in the
+**repo**, where every file sits next to every other file. The thing you actually ship is built
+in a **container** that copies a deliberate subset. Any dependency that reaches across the
+subset boundary works locally and is fatal in the image, and no amount of local green will
+ever reveal it.
+
+nebenkosten shipped exactly this: `frontend/src/routes/+layout.svelte` imported
+`../../../app/static/styles.css`, but the Dockerfile's node stage copied only `frontend/`.
+`npm run build` succeeded on every developer machine (there, `app/` really is next to
+`frontend/`) while `docker build` died with `Could not resolve "../../../app/static/styles.css"`.
+Master was **unbuildable for weeks** and nobody could know, because the Actions budget was
+exhausted for that entire window and the image is the only thing that ever builds it. The
+mirror-image failure lives in the same seam: unit tests that read `frontend/src` pass locally
+and fail *inside* the image, which ships only the built SPA — there the honest fix is to skip
+(the in-image run tests the runtime, not the frontend's structure), never to copy build inputs
+into a production image.
+
+**Rule:** when CI has been unavailable — budget exhausted, runners down, a workflow disabled —
+the FIRST thing to run on its return is a real `docker build`, before any release and before
+trusting any local gate. Treat "can the artefact be built and booted" as a check in its own
+right, separate from "do the tests pass": build the image, run it, and hit `/healthz` plus one
+real page. And when an import or a test crosses out of its own top-level directory, ask what
+the Dockerfile copies before assuming the path resolves.
