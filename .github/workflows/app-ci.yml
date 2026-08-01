@@ -360,6 +360,31 @@ jobs:
         working-directory: packages/foundation/auth-service
         run: npm ci --no-audit --no-fund
 
+      # Build the Svelte SPA, for the apps that have one. Since the Jinja screens
+      # were deleted, the SPA build IS the frontend: without frontend/build the
+      # e2e conftest aborts ("SPA build missing") and the whole job fails before a
+      # single test runs. Only the Dockerfile's node stage built it, so e2e has
+      # been dead in CI for every frontend app since the migration — invisible
+      # while the Actions budget was exhausted and nothing ran.
+      #
+      # Guarded on frontend/package.json, so apps without a frontend are wholly
+      # unaffected. The design-system package is built first: the app depends on
+      # it through a `file:` reference, exactly as the Dockerfile does.
+      - name: Build the Svelte SPA (frontend apps only)
+        if: hashFiles('frontend/package.json') != ''
+        run: |
+          set -euo pipefail
+          if [ -f packages/foundation-ui/packages/svelte/package.json ]; then
+            cd packages/foundation-ui/packages/svelte
+            npm install --no-audit --no-fund
+            npm run package
+            cd "$GITHUB_WORKSPACE"
+          fi
+          cd frontend
+          npm install --no-audit --no-fund
+          npm run build
+          test -f build/index.html
+
       - name: Run E2E tests
         env:
           DATABASE_URL: postgresql+asyncpg://${{ inputs.app_name }}:test@localhost:5432/${{ inputs.app_name }}
