@@ -2000,3 +2000,46 @@ trusting any local gate. Treat "can the artefact be built and booted" as a check
 right, separate from "do the tests pass": build the image, run it, and hit `/healthz` plus one
 real page. And when an import or a test crosses out of its own top-level directory, ask what
 the Dockerfile copies before assuming the path resolves.
+
+## A copied migration carries a `down_revision` the target app does not have — and it fails as EVERY test erroring
+
+Rolling one change across the app family means copying a migration file between siblings, and
+the apps' **revision-id conventions have diverged**: older ones use bare numbers (`revision =
+"0006"`), newer ones use the full filename (`revision = "0011_notify_and_travel_date"`). A file
+copied from an app of the first kind into an app of the second keeps `down_revision = "0011"`,
+which does not exist there — Alembic cannot build the chain, so **no migration runs at all**.
+
+The symptom is wildly out of proportion to the cause: every single test errors at setup
+(`EEEE…` across the whole run) and the gate ends on `Coverage failure: total of 32 is less than
+fail-under=70`. That reads as a broken venv, a missing submodule, or a dead test database — the
+things this file is otherwise full of — and the real message (`UserWarning: Revision 0011
+referenced from 0011 -> 0012 (head) … is not present`) is buried inside one collapsed error
+block that `-q` never prints. It cost a debugging cycle on packliste during the registration-lock
+rollout.
+
+**Rule:** after copying a migration between apps, read the **target's** neighbouring revisions
+and match their id convention — never assume the number you renamed the file to is the id
+(`grep -H '^revision\|^down_revision' app/migrations/versions/00*.py` shows both conventions at a
+glance). More generally, when a whole suite errors at *setup*, re-run with `-x` and read the
+first traceback before believing an environment theory: a one-line data error in the migration
+chain and a broken install look identical from the summary line.
+
+## Bumping a shared submodule pin makes `# type: ignore` comments unused — and mypy errors on those
+
+`mypy` reports an ignore comment that is no longer needed as an error
+(`Unused "type: ignore" comment  [unused-ignore]`). So bumping `packages/foundation` to a
+release with better type coverage **fails the type gate in files your change never touched** —
+beikost surfaced 6 and packliste 10, all in modules unrelated to the feature. It reads as
+pre-existing debt on a red baseline, or as a broken install, and it tempts you either to
+re-pin or to "fix" unrelated code you have no reason to touch.
+
+It is neither: the ignores were correct before and are redundant now, and deleting them is the
+whole fix. They belong in the **same PR as the bump**, because that PR is what made them
+redundant — leaving them breaks master for whoever merges next.
+
+**Rule:** treat "delete the now-unused ignores" as a known, expected step of any engine/library
+pin bump, not a surprise. Resolve it mechanically rather than by hand — loop `mypy`, strip the
+comments it flags as `unused-ignore`, repeat until clean — and sanity-check the diff shows only
+comment removals. And per the baseline rule, confirm the errors really are bump-induced by
+running the type check on the untouched base ref first: `unused-ignore` on files the change
+never opened is the tell, but only a baseline proves it.
