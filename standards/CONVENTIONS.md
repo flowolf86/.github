@@ -346,10 +346,66 @@ proper noun of the domain or a persisted key. New code follows this from the fir
 line; existing non-English code is converted opportunistically and tracked in
 [`ROADMAP.md`](../ROADMAP.md).
 
+## Comments describe the code that is there, not the code that was
+
+A comment earns its place by making the **current** code easier to understand. A
+comment that narrates history — what this used to be, which file it was ported
+from, what a deleted test asserted, which migration stage it is in — is noise. It
+grows with every change, is never re-verified, and eventually contradicts the code
+beside it. The reader then has to work out which of the two is lying.
+
+**The history already has a home:** `git log`, `git blame`, the PR body, and — for
+decisions worth carrying forward — `LESSONS.md` and `ROADMAP.md`. None of those go
+stale in the reader's face; a comment does.
+
+**Delete on sight:**
+
+- references to a previous implementation, framework, or file that no longer
+  exists ("this lived in `app.js`", "ported from the Jinja template", "the comp's
+  `data-open-mask`");
+- migration or stage markers that have completed ("STAGE 1 of 2", "not yet wired");
+- tombstones for deleted code or tests — if the rule still matters, restate it as a
+  test; if it does not, let it go;
+- dated narration of a past bug whose fix is now plainly visible in the code;
+- restatements of what the line below already says.
+
+**Keep** — these are the comments worth writing:
+
+- **why**, when the code cannot say it: a non-obvious constraint, an ordering that
+  looks arbitrary but is not, a workaround with the reason it is needed;
+- a warning that stops the next reader breaking something ("`_mount_spa` registers
+  first, so an entry here shadows the real handler");
+- the intent of a guard whose failure message alone would not explain it;
+- a legal, domain, or compliance obligation the code satisfies but cannot state.
+
+A past bug may be named **only** where the reader would otherwise "simplify" the
+fix away — and then in one sentence, not a paragraph. Rule of thumb: if the comment
+would still be true and useful to someone who has never seen the old code, keep it.
+Otherwise delete it in the same PR that made it stale.
+
+This applies to code comments, docstrings and test docstrings alike, and it is
+retroactive: clean stale narration out of files you are already touching.
+
+## Claude Code — response style
+
+**Short prose, listed results.** Claude's replies are working notes, not an essay.
+Say what was done, where it is, and what is next — nothing else. Concretely:
+
+- no preamble, no recap of the request, no summary of the summary;
+- prose in short paragraphs; one or two sentences where one or two will do;
+- **completed work as a list**, one line per item, with the path or command;
+- state caveats once, plainly; do not re-argue a decision already made;
+- do not narrate what you are about to do, then do it, then narrate that you did.
+
+Depth belongs in the artefact — the PR body, the commit message, the doc. The chat
+reply is the index to it.
+
 ## Code style
 
 - Code and comments are **English** — see **Language** above; the only carve-outs
   are domain/legal terms of art, persisted DB slugs, and German UI strings.
+- Comments explain the current code, never its history — see **Comments describe
+  the code that is there** above.
 - Keep `CLAUDE.md` and these standards current when architecture or conventions
   change — update the source in `flowolf86/.github`, not the synced copy.
 - Keep `README.md` correct in the same PR as the change it describes — see
