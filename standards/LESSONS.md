@@ -2043,3 +2043,38 @@ comments it flags as `unused-ignore`, repeat until clean — and sanity-check th
 comment removals. And per the baseline rule, confirm the errors really are bump-induced by
 running the type check on the untouched base ref first: `unused-ignore` on files the change
 never opened is the tell, but only a baseline proves it.
+
+## The language rule drifted for 25 PRs because the surrounding documents were German
+
+`CONVENTIONS.md` § Language names commit messages, PR titles and PR bodies as English, with
+narrow carve-outs for UI strings, persisted DB slugs and domain terms of art. From
+nebenkosten **#134** (27.07.2026, the first PR of the Svelte rebuild) through **#160**, PR
+titles were German, and ten bodies with them. It spread to beikost, packliste, scuba and gs
+— eight more PRs. Nobody noticed for a month.
+
+The cause is worth naming precisely, because "we forgot" would not prevent it. That
+programme's planning documents (`docs/UMBAU-PROGRAMM.md`, `docs/LUECKENANALYSE.md`, the
+handover package) are **legitimately German** — they are owner-facing. The PRs narrated
+those documents etappe by etappe, and the prose followed its source material across a
+boundary the rule draws and the material does not. Every individual PR felt locally
+consistent. The drift is only visible in the list.
+
+That is the general shape: **a rule about the artefact loses to the register of whatever you
+are quoting.** It applies to more than language — tone, formatting, level of detail, and the
+choice of what counts as "obvious" all leak the same way from a source document into the
+work product that cites it.
+
+**Rule:** the language of a commit message, PR title or PR body is fixed by the convention,
+never by the language of the thing it describes. Quoting a German document, a German UI
+string or a German domain term is exactly what the carve-outs are for — quote them verbatim
+inside English prose, do not switch prose language to match. If you notice yourself writing
+a whole German sentence in a PR, that is the signal, not a style choice.
+
+**On repair:** PR titles and bodies live on GitHub, not in git, and stay editable on merged
+PRs forever (`gh pr edit <n> --title --body-file`, `gh release edit <tag>`). Fixing them
+costs nothing and breaks nothing. The squash-merge *commit* subjects are a second copy that
+does live in git; rewriting those means `filter-repo` plus a force-push that changes every
+SHA, orphans release tags and breaks the deploy audit trail — not worth it for prose nobody
+reads outside the PR that produced it. Repair the readable copy, leave the history, and say
+in this file that the window exists so the mixed `git log` is explained rather than
+mysterious. Repaired 05.08.2026.
