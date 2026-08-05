@@ -2044,16 +2044,24 @@ comment removals. And per the baseline rule, confirm the errors really are bump-
 running the type check on the untouched base ref first: `unused-ignore` on files the change
 never opened is the tell, but only a baseline proves it.
 
-## The language rule drifted for 25 PRs because the surrounding documents were German
+## The language rule lapsed twice, and the estimate of the damage was wrong three times
 
 `CONVENTIONS.md` § Language names commit messages, PR titles and PR bodies as English, with
-narrow carve-outs for UI strings, persisted DB slugs and domain terms of art. From
-nebenkosten **#134** (27.07.2026, the first PR of the Svelte rebuild) through **#160**, PR
-titles were German, and ten bodies with them. It spread to beikost, packliste, scuba and gs
-— eight more PRs. Nobody noticed for a month.
+narrow carve-outs for UI strings, persisted DB slugs and domain terms of art. It lapsed in
+nebenkosten **twice**, with an English stretch in between:
 
-The cause is worth naming precisely, because "we forgot" would not prevent it. That
-programme's planning documents (`docs/UMBAU-PROGRAMM.md`, `docs/LUECKENANALYSE.md`, the
+| | |
+|---|---|
+| **#2 – #50** | German |
+| **#51 – #133** | English |
+| **#134 – #160** | German again |
+
+It also spread outward: beikost (#146–#148), packliste (#150), scuba (#110/#112/#113), gs
+(#58) and foundation-ui (#72). Repaired 05.08.2026 — **55 PR titles, 34 PR bodies and 11
+release notes across six repos.**
+
+The cause is worth naming precisely, because "we forgot" would not prevent it. The Svelte
+rebuild's planning documents (`docs/UMBAU-PROGRAMM.md`, `docs/LUECKENANALYSE.md`, the
 handover package) are **legitimately German** — they are owner-facing. The PRs narrated
 those documents etappe by etappe, and the prose followed its source material across a
 boundary the rule draws and the material does not. Every individual PR felt locally
@@ -2070,11 +2078,34 @@ string or a German domain term is exactly what the carve-outs are for — quote 
 inside English prose, do not switch prose language to match. If you notice yourself writing
 a whole German sentence in a PR, that is the signal, not a style choice.
 
+### The second lesson is about the estimate, not the drift
+
+While repairing it, the scope was reported wrong three times in a row, each time with
+confidence:
+
+1. "~50–70 PRs across five repos" — a guess from the titles that happened to be on screen.
+2. "Much smaller: only 10 bodies; the rest is titles only" — measured, but only over
+   **#134–#160**, the window already believed to be the whole problem.
+3. "#134 is where it started" — stated as fact, then contradicted by a verification sweep
+   that found #2–#50 sitting *before* the English stretch, plus foundation-ui #72 in a repo
+   listed as clean.
+
+Each estimate generalised from the sample already in hand instead of measuring the whole
+set, and each one sounded more certain than the last because the sample kept looking
+consistent. A drift that recurs after a clean stretch is invisible to exactly that method:
+finding one window is evidence there may be others, not evidence there are none.
+
+**Rule:** before reporting the scope of a cleanup, enumerate the full set mechanically and
+quote the count from the enumeration — never from the part you have read. Then re-run the
+detector **after** the work and treat any surviving hit as real until inspected; the sweep
+that disagrees with you is the one worth having. Report the corrected number plainly rather
+than quietly restating it.
+
 **On repair:** PR titles and bodies live on GitHub, not in git, and stay editable on merged
 PRs forever (`gh pr edit <n> --title --body-file`, `gh release edit <tag>`). Fixing them
 costs nothing and breaks nothing. The squash-merge *commit* subjects are a second copy that
 does live in git; rewriting those means `filter-repo` plus a force-push that changes every
 SHA, orphans release tags and breaks the deploy audit trail — not worth it for prose nobody
 reads outside the PR that produced it. Repair the readable copy, leave the history, and say
-in this file that the window exists so the mixed `git log` is explained rather than
-mysterious. Repaired 05.08.2026.
+in this file that the windows exist so the mixed `git log` is explained rather than
+mysterious.
