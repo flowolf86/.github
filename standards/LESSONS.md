@@ -2150,3 +2150,59 @@ shown to be real by removing the anchor component itself, which is how the bug a
 shipped. A break that the code is already robust against proves nothing about the guard.
 Sibling of *"Changing a CSS variable's VALUE does nothing if no rule consumes it"*: the
 element, like the token, is present, correct, and inert.
+
+## A new URL prefix inherits the catch-all's headers — a Svelte port silently un-cached every SPA bundle
+
+Each app's `docker-compose.prod.yml` declares a Traefik **catch-all** router that stamps
+`Cache-Control: no-store` (correct — it serves HTML and API responses) plus a
+higher-priority `/static` router that stamps `public, max-age=31536000, immutable`. That
+pair was complete and correct for years, because every cacheable asset lived under
+`/static`.
+
+The Jinja -> SvelteKit port introduced a **new prefix**, `/_app/immutable/*`, and nobody
+added a router for it. So the catch-all matched it, and **the entire content-hashed SPA
+bundle was served `no-store`** — the browser cached none of it and re-downloaded all ~26
+chunks (~196 KB, and no `compress` middleware existed either) on every page load *and*
+every client-side navigation. Three of the four migrated apps shipped this way
+(dashboard, nebenkosten, scuba); beikost happened to add the router and was the only one
+unaffected — which is also why "compare against a working sibling" found it.
+
+It is close to undetectable by every habit that normally works:
+
+- **The app is innocent and provably so.** `module.py` mounts `_ImmutableStatic` on `/_app`
+  and emits the right header. Traefik's `customResponseHeaders` **overwrites** the origin's
+  value, so the Python code, its tests, and code review are all correct. The truth only
+  appears by diffing the two: `docker exec <app> python -c "urlopen(...)"` on port 8000 says
+  `immutable`, the same URL through the proxy says `no-store`.
+- **Nothing errors, and the symptom is not local.** It presents as "the app feels slower
+  since the port" — which sounds like a subjective impression, or like the SPA architecture's
+  known cost, and both are plausible enough to stop the investigation.
+- **Server timings exonerate the wrong layer convincingly.** Measured in prod: the admin API
+  answered in ~8 ms, its internal `get-session` in ~5 ms, the page route in ~2 ms. Every
+  server number is excellent while the page is slow, which pushes you toward the API, the
+  database, or the auth sidecar — all fine.
+- It is worst on **repeat** visits, i.e. exactly the case a cache exists to make fast, so it
+  gets worse the more the owner uses the app.
+
+**Rules.** (1) Adding a URL prefix is a **reverse-proxy** change, not just an app change: any
+new top-level path (`/_app`, `/assets`, `/media`) inherits the catch-all's headers until a
+router claims it, so enumerate the prefixes the proxy knows about whenever the build output
+moves. (2) Assert the ledger in the repo — a text test over `docker-compose.prod.yml`
+(`app/tests/test_prod_compose.py` in the wolf-labs apps) that every content-addressed prefix
+has a router carrying an immutable cache, that the catch-all carries `no-store` and never
+`immutable`, and that bulk routers compress. It is pure filesystem, costs nothing, and is the
+only thing that can see a defect whose entire evidence is a header. (3) **Verify a header
+end-to-end after any deploy that changes what is served**, from outside the box and against
+the origin, since a proxy rewrite makes those two disagree silently. (4) Family-wide
+corollary: when one repo in a family has a proxy rule the others lack, that is a finding about
+the others — audit the whole fleet (`grep -c 'PathPrefix(\`/_app\`)' /opt/*/docker-compose.prod.yml`)
+rather than fixing only the app that was reported. Sibling of *"a green deploy that pulled an
+unchanged pinned tag is a no-op that looks identical to success"*: verify the observable
+outcome, never the intent of the config.
+
+**And a second defect the same investigation surfaced, worth its own line:** counting the e2e
+suite in the *unit* coverage denominator (`omit = ["migrations/*", "tests/*"]` — note `e2e/*`
+missing) means **every e2e test you write pushes the coverage gate down**. Four new e2e tests
+took dashboard-app from a green 61.1% to a failing 58.7%, and the "fix" that suggests itself
+is to delete tests or lower the floor. Real app coverage was 87.6%. Omit every test tree, and
+set the floor against app code only.
