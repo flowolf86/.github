@@ -2109,3 +2109,44 @@ SHA, orphans release tags and breaks the deploy audit trail — not worth it for
 reads outside the PR that produced it. Repair the readable copy, leave the history, and say
 in this file that the windows exist so the mixed `git log` is explained rather than
 mysterious.
+
+## An element that positions itself OUTSIDE its container needs an ancestor that is both positioned and non-clipping — and each failure is silent, in opposite directions
+
+A decoration that stages itself just beyond its container's edge — `position: absolute;
+bottom: calc(100% - 2px)`, so it appears to rise from behind a card — carries **two**
+requirements on its host, and neither raises anything when unmet:
+
+- **No positioned ancestor** → the containing block falls through to whatever is positioned
+  further up (often the initial containing block), so it strands somewhere near the top of
+  the document. It renders perfectly; it is just nowhere near the thing it belongs to.
+- **A clipping ancestor** (`overflow: hidden`) → its box lies *wholly outside* that
+  ancestor, so it is clipped to nothing. It is in the DOM, has real computed geometry, and
+  paints zero pixels.
+
+The trap is that the obvious host usually fails the *second* test precisely because it is a
+well-built card: `.wl-card` is `position: relative` (correct, for its glow) **and**
+`overflow: hidden` (also correct, for its rounded corners). So the element that looks like
+the right parent is the one guaranteed to erase the child. Mounting it a level up instead
+fixes the clipping and reintroduces the stranding. It bit dashboard-app's Fenrir mascot:
+`card` is the highest-weighted scene (16% of appearances) and shipped anchored to the
+viewport, landing at the top of the page behind the nav.
+
+The fix is a **mirrored anchor**: an absolutely positioned, unclipped box in a positioned
+ancestor whose geometry is copied from the real target (`getBoundingClientRect` of the card,
+minus the ancestor's), with the child mounted against that. Measure against `offsetParent`
+rather than assuming the ancestor — but still pin that ancestor `position: relative`, because
+`offsetParent` and *containing block* are the same set of elements only until someone adds a
+`transform`: a transformed element establishes a containing block for absolutely positioned
+descendants **without** becoming their `offsetParent`, and the two silently diverge.
+
+**Rules:** (1) when adopting a component that positions itself outside its own box, check its
+host for BOTH properties — positioned and non-clipping — because satisfying one is the normal
+way to break the other; (2) assert the outcome geometrically in e2e (`sceneRect.bottom <=
+hostRect.top` and `sceneRect.top > navHeight`), never on mere presence, since both failure
+modes leave the element attached and measurable; (3) **prove that assertion goes red on the
+real defect shape** — a first attempt here "proved" the guard by removing `position: relative`
+and it stayed green, because `offsetParent`-relative math self-corrects; the guard was only
+shown to be real by removing the anchor component itself, which is how the bug actually
+shipped. A break that the code is already robust against proves nothing about the guard.
+Sibling of *"Changing a CSS variable's VALUE does nothing if no rule consumes it"*: the
+element, like the token, is present, correct, and inert.
