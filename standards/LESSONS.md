@@ -110,8 +110,11 @@ off, no sync PR is ever opened and the repo's `.standards/` copies silently drif
 canonical — the exact failure the entry below ("A documented lesson only helps if the repo
 is wired to surface it") exists to prevent, caused by this file. `dashboard-app` was set
 `false` by this very instruction on 2026-07-04 and could not create sync PRs while every
-sibling could. CONVENTIONS.md has said `true` since; the two contradicted each other until
-2026-08-07.
+sibling could.
+
+Corrected 2026-08-07, after an audit found the wrong value still sitting here. All six app
+repos read `write`/`true` today, which is *why* it survived: the instruction was only ever
+followed literally once, and the repo it broke was the one it was written for.
 
 ## VPS: redeploy config changes through release.yml, never raw `docker compose up -d` over SSH
 
