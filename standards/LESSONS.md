@@ -2206,3 +2206,46 @@ missing) means **every e2e test you write pushes the coverage gate down**. Four 
 took dashboard-app from a green 61.1% to a failing 58.7%, and the "fix" that suggests itself
 is to delete tests or lower the floor. Real app coverage was 87.6%. Omit every test tree, and
 set the floor against app code only.
+
+## A UI suite that only ever runs at one viewport is blind to every layout defect
+
+Playwright's default context is **1280px wide**. An e2e suite that never sets `viewport`
+therefore asserts a desktop rendering exclusively — so an app can ship a panel with **no
+`@media` rule anywhere** and stay green forever. dashboard-app's Kontrollzentrum did: every
+screen was a horizontal flex row with no wrap, and at a phone width the overview row's
+*intrinsic* width was `467px` — constant whatever the viewport — so the page scrolled sideways
+and a status chip painted directly over the app name. 50 e2e tests, five releases, and none of
+them could see it; it took the owner opening the panel on a phone.
+
+The tell is cheap to check and worth checking on any ported/hand-built screen: **`grep -c
+@media` over the route's styles.** Zero means nobody has ever considered a narrow viewport, and
+zero is common after a Jinja→SPA port, because the package's own components are responsive and
+the *app's* wrapper layout quietly is not.
+
+**Rules.** (1) Any screen with more than one horizontal element needs at least one e2e test at a
+real phone viewport (`390x844`); make it a fixture so it is one word to use. (2) Assert the
+*measurement*, not the appearance — `document.documentElement.scrollWidth <= clientWidth` is one
+line and catches the whole class. A screenshot review does not: a full-page capture composites
+`position: fixed` chrome at its viewport position, so the bottom nav appears to overlap content
+mid-page and you learn to ignore exactly the signal you came for.
+
+Two ways the guard itself goes wrong, both of which shipped here before being caught by running
+it against the pre-fix build:
+
+- **`scrollWidth <= clientWidth` is a PROXY for "readable" and passes on broken code.** A widget
+  pushed past the viewport's right edge never clips *itself* — the segmented control whose
+  "Geschlossen" label was physically off screen reported a perfectly healthy `83/83`, because
+  the clipping was done by the screen, not by its own box. Assert `box.x + box.width <=
+  clientWidth` instead. Same family as `color_scheme="dark"` and the token-with-no-consumer:
+  measure the real mechanism, never a correlate of it.
+- **Seeding the easy case makes a layout test decorative.** The same control declared with an
+  empty `help` string leaves a narrow label column, so the control fits at 390px *even unfixed*.
+  Layout regression tests must seed the **worst case** — longest realistic name, every optional
+  chip present, the real help text the app actually announces — because layout defects are
+  functions of content length and the short fixture is exactly the one that fits.
+
+Corollary for overlap detection: compare **leaf** boxes only. An ancestor always contains its
+children and a flex row always contains its items, so a naive all-pairs check reports containment
+as collision and buries the real hits. And before filing a leftover collision as a defect, run
+the identical probe against a page the change does not touch — an identical result means it is
+chrome, not your regression.
