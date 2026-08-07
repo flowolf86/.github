@@ -98,8 +98,20 @@ needs `contents: read`) works fine on the same repo, which makes this look
 like a bad workflow file rather than a permissions setting. **Rule:** when
 bootstrapping a new app repo, set this immediately —
 `gh api -X PUT repos/<owner>/<repo>/actions/permissions/workflow -f
-default_workflow_permissions=write -F can_approve_pull_request_reviews=false`
+default_workflow_permissions=write -F can_approve_pull_request_reviews=true`
 — before wiring up `release.yml`, not after hitting the silent failure.
+
+**Set `can_approve_pull_request_reviews` to `true`, not `false`.** This entry said
+`false` for months and that value is wrong in a second, quieter way: the flag is the
+repo toggle *"Allow GitHub Actions to create and approve pull requests"*, which the
+**standards-sync** workflow needs in order to open its PR (`peter-evans/create-pull-request`
+fails with *"GitHub Actions is not permitted to create or approve pull requests"*). With it
+off, no sync PR is ever opened and the repo's `.standards/` copies silently drift from
+canonical — the exact failure the entry below ("A documented lesson only helps if the repo
+is wired to surface it") exists to prevent, caused by this file. `dashboard-app` was set
+`false` by this very instruction on 2026-07-04 and could not create sync PRs while every
+sibling could. CONVENTIONS.md has said `true` since; the two contradicted each other until
+2026-08-07.
 
 ## VPS: redeploy config changes through release.yml, never raw `docker compose up -d` over SSH
 
@@ -2249,3 +2261,101 @@ children and a flex row always contains its items, so a naive all-pairs check re
 as collision and buries the real hits. And before filing a leftover collision as a defect, run
 the identical probe against a page the change does not touch — an identical result means it is
 chrome, not your regression.
+
+## CSS `transform` overrides an SVG element's `transform` ATTRIBUTE — animating collapses the artwork
+
+A multi-part SVG mark positions its parts with the SVG presentation **attribute**
+(`transform="translate(…) rotate(…)"`). The moment CSS animates a `transform` **property** on
+that same element — an entrance `scale()`, a hover `rotate()` — the CSS property wins outright
+and the attribute is discarded, so every part snaps to the origin and the mark renders as one
+stacked blob. It is not a partial or a subtle break: the artwork is simply gone, and only while
+the animation is applied, so a still screenshot taken at the wrong moment can look fine.
+
+It bit the wolf-labs paw mark (V2), whose toes and claws are each individually placed. The fix
+is to give positioning and animation **separate elements**: wrap each positioned part in a
+`<g transform="…">` and keep the animation class on the inner `<path>`. Static copies (a sprite,
+a brand `.svg`) can keep the transform on the path, because nothing animates them — which is why
+the static and animated copies of the same mark legitimately differ, and why "just copy the
+sprite version" reintroduces the bug.
+
+**Rule:** never animate `transform` on an element that relies on a `transform` attribute for its
+position. Wrap, then animate the child. Verify by rendering at the animation's **resting** state
+(e.g. ~1.5s in) and confirming the parts are in place rather than stacked at the origin — the
+`from` frame often looks correct by coincidence. Same family as *"A CSS animation overrides
+inline styles — even while paused"*: the cascade outranks the markup, in both directions.
+
+## A gated page that takes an authenticate-only dependency is a privilege gap that looks harmless
+
+Foundation apps have two different auth dependencies and they read almost identically at a call
+site: `CurrentUser` proves *somebody is signed in*; the app's own admin dep (e.g. `AdminUser`,
+an exact `ADMIN_EMAIL` compare) proves *this particular person may administer*. Put `CurrentUser`
+on an admin **page** route and every signed-in identity in the system is served the admin shell —
+its navigation, its structure, the names of the apps it manages.
+
+What makes this specific downgrade so easy to wave through in review is that **the API stays
+correctly 403** either way, because the JSON routes carry the stronger dep. So a tester signs in
+as a non-admin, lands on the panel, sees every request fail and every table empty, and concludes
+the gate held. It did not: the shell itself is the leak, and the substitution is a one-word diff.
+
+**Rule:** a route that *renders* a privileged surface takes the privileged dependency, never the
+merely-authenticated one — being logged in is not an authorisation decision. Regression-test it
+with a **third identity** that is authenticated but not the admin (the engine's non-prod
+`fdn_test_user` cookie resolves ahead of the dev stub, so it gets no bypass) and assert the page
+**redirects or 403s**, not merely that its data is empty. Sibling of *"An IDOR test run as the
+dev-stub user can never fail"*: authenticating your probe as someone privileged makes the test
+incapable of reporting the bug.
+
+## `adapter-static` with `fallback: 'index.html'` silently overwrites a prerendered `/`
+
+SvelteKit's static adapter writes each prerendered route to its own file — `/` becomes
+`build/index.html` — and then writes the SPA **fallback** document to whatever `fallback` names.
+Set `fallback: 'index.html'` (the value every SPA tutorial uses, and the one three sibling apps
+correctly use because they prerender *nothing*) while also prerendering `/`, and the two target
+the same path: the fallback lands last and the prerendered homepage is gone. The build succeeds,
+the site works, and the one page whose `<head>` you most wanted a crawler to see now serves the
+generic SPA shell.
+
+**Rule:** the moment ANY route is prerendered, the fallback must be a name no route can claim —
+`fallback: '200.html'` — and the server's catch-all must serve that file. Verify by `curl`ing the
+prerendered route and grepping the raw HTML for its per-page `<title>`/`og:` block; a hydrated
+browser view cannot tell you which file was served. Test it, because the collision is
+content-dependent: an app that prerenders only `/impressum` will not notice until the day someone
+prerenders `/`.
+
+## A repo's `.standards/` copy can LAG canonical — check the source before quoting a rule
+
+`.standards/CONVENTIONS.md` and `.standards/LESSONS.md` are **synced copies**, refreshed by a
+workflow that can be behind, disabled, or (per the Actions-permissions entry above) unable to open
+its PR at all. The rule everyone knows is "edit the source, never the copies"; the missing half is
+that **reading** a copy is also unsafe when the answer matters. An agent quoted a repo's stale
+`CONVENTIONS.md` that framed local test runs as a budget-saving fallback and told the owner so
+confidently — canonical had already changed it to a hard precondition, and the owner had to
+correct it.
+
+**Rule:** when a standard is load-bearing for what you are about to do — and always when someone
+pushes back on one — read canonical, not the synced copy:
+`gh api repos/flowolf86/.github/contents/standards/CONVENTIONS.md --jq .content | base64 -d`.
+Refresh the copies with `gh workflow run sync-standards.yml`. A `.standards/` file that has not
+changed while canonical has is not evidence the rule is stable; it is evidence the sync is broken.
+
+## A design system that styles against ROLE tokens needs every consumer to remap them
+
+`foundation-ui`'s shell styles all of its widgets — segmented controls, buttons, modals, toasts,
+the drawer — against role tokens (`--paper`, `--card`, `--ink*`, `--line`, `--acc*`), and its own
+`:root` supplies only fallbacks. An app that invents a parallel palette namespace and never
+aliases the role tokens therefore gets shell widgets painted in the *fallback* palette: on
+dashboard-app's always-dark surface, the DE/EN language picker rendered as a cream chip on
+near-black, and nothing was broken enough to fail a build or a test.
+
+Two halves to the durable fix, and the second is the transferable one: the app remaps the role
+tokens once on its body class; and **the package changed its fallbacks from a plausible light
+palette to a loud magenta/cyan sentinel** (v0.7.0), so a forgotten remap now renders obviously
+wrong in development instead of shipping a subtly wrong colour. A "sensible default" that
+silently half-works is worse than one that screams.
+
+**Rule:** any new app, or any app dropping a design-system widget onto a non-default surface,
+ships the role-token alias block on day one, and guards it (dashboard-app's e2e fails if a shell
+light-paper colour surfaces in the rendered dark hub). When bumping a submodule past the sentinel
+version, *look* at the app — magenta means a real pre-existing gap, not a regression. Related:
+*"A dark-DEFAULT app loses its whole palette to the design system on specificity"* — same class of
+defect (whose colour wins), different mechanism (cascade specificity vs. an unremapped token).
