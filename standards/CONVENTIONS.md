@@ -334,7 +334,21 @@ release).
 **Class A — working-tree / HEAD collisions** (a linter reverts your files, HEAD
 moves mid-command, your branch gets force-pushed with someone else's commit).
 **Fix: isolation.** Do every non-trivial git edit in a private worktree, never in
-the shared checkout:
+the shared checkout.
+
+**"Non-trivial" is about CONTENTION, not size** — this threshold is the part people
+get wrong, including agents who have read this section. Appending one paragraph to a
+markdown file feels trivial and is not: an agent doing exactly that in **this repo**
+had its `HEAD` reset to `master` twice mid-sequence, watched a pushed branch ref
+silently rewind to `origin/master` (destroying a commit that survived only because it
+had been tagged), and published two contradictory "facts" about `CONVENTIONS.md` read
+from another agent's uncommitted working tree. The change was three paragraphs.
+
+Use the worktree whenever **another agent might touch the repo while you work** —
+which for `flowolf86/.github` is essentially always, since every session writes lessons
+here, and for an app repo is any time a sibling session is running. A one-line docs edit
+in a contended checkout is *more* dangerous than a large edit in a quiet one, because
+you will not be watching for it. The setup costs seconds:
 
 ```sh
 git fetch origin
