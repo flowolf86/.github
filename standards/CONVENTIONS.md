@@ -212,7 +212,8 @@ own image, so the attribution ships with them.
 - **Every app has an `/licenses` page** (route + template, `noindex`), reachable
   from the drawer's legal section (`NavItem(section="legal")`) or, on the public
   hub, the footer. It credits the backend dependency stack (foundation engine +
-  app extras), the bundled fonts (SIL OFL), and the icon set — one row each.
+  app extras), every bundled typeface **under its own actual licence** (see
+  Typefaces below — do not assume SIL OFL), and the icon set — one row each.
 - **Bootstrap Icons (MIT) are used across the suite and MUST always be credited,
   even when the icons are copied into the app's own sprite** rather than pulled
   from the `bootstrap-icons` package. Copying the artwork does not remove the
@@ -221,6 +222,73 @@ own image, so the attribution ships with them.
   the sprite/symbol site (e.g. `{# trash3 — Bootstrap Icons (MIT) #}`), so the
   provenance travels with the markup and the next editor knows it is attributable.
   See `nebenkosten-app`'s `templates/base.html` sprite for the pattern.
+
+### Typefaces — the product picks, the licence gates
+
+**No standard, skill or template prescribes which typeface an app uses.** Type is a
+product decision and belongs to the app: it may keep the design system's defaults,
+override the body face, override both, or ship something entirely its own. A
+sibling's choice is precedent, never a requirement — and neither `foundation-ui`'s
+defaults nor anything in this document should be read as a mandate. If a rule ever
+appears to pin a family, that rule is wrong; fix it here.
+
+What IS mandatory is everything around the choice:
+
+1. **The licence must actually permit our use** — self-hosting and embedding in a
+   commercial product, on our own domains, with no per-view or per-domain fee.
+   Confirm it before the font lands in a commit, not after. SIL OFL, Apache-2.0,
+   MIT and similar are fine; "free for personal use", "free with attribution to a
+   foundry that forbids modification", unclear provenance, or a webfont plan that
+   meters pageviews are not. **Unclear licence = do not use it.** Record the
+   licence you verified, with its source URL, in the same PR — a font whose terms
+   nobody can produce later is a liability wearing a design decision.
+2. **Every shipped face is credited on `/licenses`**, one row each, naming the
+   family, the licence, and a link to that licence's text — under its real licence,
+   not a suite-wide assumption. A face that is bundled but uncredited is the same
+   defect as an uncredited icon set.
+3. **Bundled, never fetched** (this is the delivery rule, unchanged): subset woff2
+   in the app's own static tree, no CDN and no Google Fonts call at runtime, so the
+   running container needs no internet. See LESSONS for the subsetting recipe.
+4. **Retire what you stop using.** A face removed from the CSS is removed from the
+   image and from `/licenses` in the same PR — a stale credit is a false statement
+   about what we ship, which is worse than a missing one.
+
+### Sign in with Google — one implementation across the suite
+
+Google's identity branding guidelines govern this button, and they are not
+stylistic advice: the mark must appear, unmodified, and it must sit on a light
+surface. **`nebenkosten-app`'s login page is the reference implementation** — copy
+from there, not from whichever sibling you happen to have open.
+
+- **Use Google's own asset, unmodified.** Their `g-logo.png` from
+  developers.google.com/identity/branding-guidelines, bundled locally (e.g.
+  `static/icons/google-g.png`). **Do not hand-transcribe the four coloured
+  paths into inline SVG** — a copy that drifts is an altered mark, and a
+  transcription is harder to re-verify against Google's current asset than a file
+  you can diff. Never change its size or colours.
+- **The button stays light in BOTH themes** — `#ffffff` background, `#747775`
+  border, `#1f1f1f` text: Google's own Light theme, which satisfies the
+  "mark on white" rule with no dark-theme variant to maintain. **These are the one
+  place hard-coded colours are correct; do not use your design tokens here.**
+  Theming it with `var(--card)`/`var(--paper-2)` looks tidy and is the trap — the
+  button turns dark in dark mode and the full-colour G is then on a dark surface,
+  in breach, *in one theme only*, so every light-mode screenshot says it is fine.
+  Carry a comment at the rule saying why the literals are deliberate.
+- **Shape and spacing are yours** — border radius, width, padding follow the app's
+  design. Only the mark and the surface are fixed.
+- **Stable hooks:** the control is `<button id="google-btn" class="google-btn">`
+  with the mark in an `aria-hidden` child and the label in its own element. The
+  suite's cross-stack e2e addresses `#google-btn`; renaming it breaks other repos'
+  tests, so treat the id as an API.
+- **In an SPA, render it unconditionally.** There is no `google_enabled` flag on
+  the wire — a static bundle has no server-rendered condition to read.
+- **Behaviour:** `POST /api/auth/sign-in/social` with `credentials: 'include'` and
+  `{provider: 'google', callbackURL: safeNext(next)}`; disable the button while the
+  request is in flight; **always** pass `next` through `safeNext()` (every app
+  shipped a fix for `?next=javascript:…` executing in-origin after auth).
+- **Attribution:** the Google G is a **trademark used under Google's branding
+  guidelines**, not an open-source asset. It does NOT belong in the `/licenses`
+  open-source credits, and adding it there misstates what it is.
 
 ## Hub self-registration (new apps)
 
