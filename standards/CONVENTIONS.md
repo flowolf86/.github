@@ -152,6 +152,58 @@ pulling latest `master` on the VPS.
 - Port mapping lives in `docker-compose.yml` (host → container); change the host
   (left) side only.
 
+### Deploy keys: two per app, dedicated, never shared between apps
+
+CI checks the private submodules out over SSH, so each app carries a
+`FOUNDATION_DEPLOY_KEY` (for `foundation-api-engine`) and a
+`FOUNDATION_UI_DEPLOY_KEY` (for `foundation-ui`) repo secret.
+
+**Every app mints its OWN keypair for EACH submodule repo — two keypairs, both
+read-only, both titled `<app>-app-ci`. Never reuse another app's key.**
+
+GitHub already forces half of this: a public key may be registered as a deploy
+key on only **one** repository, so one keypair can never cover both submodules.
+Two keypairs per app is the floor, not a preference. What the rule adds is that
+apps must not share with *each other*: a shared key cannot be revoked or rotated
+for one app without breaking every other app carrying it, and the deploy-key list
+on the submodule repo stops being a usable inventory of who has read access.
+
+Setting up a new app, once:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "<app>-app-ci (foundation-api-engine)" -f /tmp/k/engine -q
+ssh-keygen -t ed25519 -N "" -C "<app>-app-ci (foundation-ui)"         -f /tmp/k/ui     -q
+gh repo deploy-key add /tmp/k/engine.pub -R flowolf86/foundation-api-engine -t "<app>-app-ci"
+gh repo deploy-key add /tmp/k/ui.pub     -R flowolf86/foundation-ui         -t "<app>-app-ci"
+
+# Prove each key authenticates BEFORE trusting it with a secret. IdentityAgent=none
+# matters: without it ssh falls back to your personal key and the check passes even
+# when the deploy key is wrong.
+ssh -i /tmp/k/engine -o IdentitiesOnly=yes -o IdentityAgent=none -T git@github.com
+#   → "Hi flowolf86/foundation-api-engine! You've successfully authenticated…"
+
+gh secret set FOUNDATION_DEPLOY_KEY    -R flowolf86/<app>-app < /tmp/k/engine
+gh secret set FOUNDATION_UI_DEPLOY_KEY -R flowolf86/<app>-app < /tmp/k/ui
+gh secret set VPS_HOST    -R flowolf86/<app>-app --body "167.233.194.189"
+gh secret set VPS_SSH_KEY -R flowolf86/<app>-app < ~/.ssh/id_hetzner_agent
+shred -u /tmp/k/engine /tmp/k/ui   # the private halves live in GitHub secrets only
+```
+
+`gh repo deploy-key add` has **no read-only flag** — read-only is the default and
+`-w` would make the key writable. Never pass `-w`.
+
+**A brand-new repo also needs its Actions token widened**, or `dorny/paths-filter`
+in `app-ci.yml` fails in ~5s with `Resource not accessible by integration`:
+
+```bash
+gh api -X PUT repos/flowolf86/<app>-app/actions/permissions/workflow \
+  -f default_workflow_permissions=write -F can_approve_pull_request_reviews=true
+```
+
+New repos default to `read`; every existing app is `write`. The failure reads
+like a broken workflow rather than a settings gap, so it is easy to chase in the
+wrong direction.
+
 ## Third-party assets & attribution
 
 Every self-hosted open-source asset gets credited — apps ship the assets in their
