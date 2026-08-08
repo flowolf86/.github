@@ -114,7 +114,8 @@ sibling could.
 
 Corrected 2026-08-07, after an audit found the wrong value still sitting here. All six app
 repos read `write`/`true` today, which is *why* it survived: the instruction was only ever
-followed literally once, and the repo it broke was the one it was written for.
+followed literally once, and the repo it broke was the one it was written for. CONVENTIONS.md
+also carries the correct value (in the concurrent-agents bootstrap command).
 
 ## VPS: redeploy config changes through release.yml, never raw `docker compose up -d` over SSH
 
@@ -1633,6 +1634,25 @@ is required, each agent needs its own `git worktree`, which is a different and m
 setup worth choosing deliberately. Same rule for builds: concurrent agents must not run the
 project build (they race on shared output) — have them verify by type/syntax check and let the
 orchestrator run the single authoritative build.
+
+**And READING the shared tree is unsafe too — this is the half that produces false facts.** A
+`grep` over a checkout another agent is working in reports *their uncommitted edits* as the
+repository's state. It cost a wrong claim in this very file: an audit grepped
+`standards/CONVENTIONS.md`, saw a line that was actually sitting in a concurrent agent's
+in-progress branch, and published "CONVENTIONS has said X all along" as canonical fact. The
+correction was then ALSO wrong within the hour, because that agent's PR merged and the line
+became real. Two contradictory statements, both honestly derived, neither ever true when
+written. The same interference reset this agent's `HEAD` back to `master` twice mid-sequence
+and silently rewound a pushed branch ref to `origin/master`, destroying a commit that only
+survived because it had been tagged.
+
+**Rule:** any claim about what a repo *says* — quoted in a PR, a lesson, or an answer — must
+come from a committed ref, not the working tree: `git show origin/master:<path>`, or `gh api
+repos/<owner>/<repo>/contents/<path>`. If you notice HEAD moving, a branch ref rewinding, or a
+file containing something `git log -S` cannot account for, stop and move to a private worktree
+(`git worktree add`) before doing anything else — and `git tag -f recover/<slug> <sha>` any
+commit you would mind losing, immediately, because in a contended checkout a pushed branch ref
+is not durable either.
 
 ## A fan-out of agents dies as a cohort, and burns budget several times faster
 
