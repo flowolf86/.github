@@ -203,10 +203,15 @@ build_spa() {
     # foundation-ui-svelte is a `file:` dependency: without `npm run package`
     # its dist/ is empty and the app build dies on missing exports.
     log "building foundation-ui-svelte"
-    ( cd "$ui" && npm install --no-audit --no-fund --silent && npm run package >/dev/null )
+    ( cd "$ui" && { [ -d node_modules ] || npm ci --no-audit --no-fund --silent; } \
+      && npm run package >/dev/null ) || die "foundation-ui-svelte package build failed"
   fi
   log "building the app SPA"
-  ( cd frontend && npm install --no-audit --no-fund --silent && npm run build >/dev/null )
+  # `npm ci` only when node_modules is absent: this runs on every e2e invocation,
+  # and a network install each time is the difference between a driver people use
+  # and one they route around. (Taken from PR #91, which found this defect first.)
+  ( cd frontend && { [ -d node_modules ] || npm ci --no-audit --no-fund --silent; } \
+    && npm run build >/dev/null ) || die "SPA build failed — e2e would test the wrong frontend"
   if [ ! -f frontend/build/200.html ] && [ ! -f frontend/build/index.html ]; then
     die "SPA build produced no document in frontend/build"
   fi
