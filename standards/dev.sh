@@ -183,6 +183,35 @@ _pytest_unit() {
 
 cmd_test() { _ensure_env; cmd_db; reset_db; log "unit suite (from app/, DB :$PORT)"; _pytest_unit "$@"; }
 
+# --------------------------------------------------------------------------- #
+# Build the Svelte SPA before anything that SERVES it.
+#
+# CI does this (app-ci.yml, "Build the Svelte SPA (frontend apps only)"), and a
+# local step weaker than its CI counterpart is a repo bug that looks like
+# coverage — the worst kind. Without it `./dev e2e` drives whatever bundle
+# happens to be sitting in frontend/build, which may predate your change by
+# days: the suite then reports confidently about code you have already
+# replaced, in either direction. A green run means nothing and a red run sends
+# you debugging a diff that is not being served.
+#
+# Guarded on frontend/package.json, so Jinja apps are wholly unaffected.
+# --------------------------------------------------------------------------- #
+build_spa() {
+  [ -f frontend/package.json ] || return 0
+  local ui="packages/foundation-ui/packages/svelte"
+  if [ -d "$ui" ]; then
+    # foundation-ui-svelte is a `file:` dependency: without `npm run package`
+    # its dist/ is empty and the app build dies on missing exports.
+    log "building foundation-ui-svelte"
+    ( cd "$ui" && npm install --no-audit --no-fund --silent && npm run package >/dev/null )
+  fi
+  log "building the app SPA"
+  ( cd frontend && npm install --no-audit --no-fund --silent && npm run build >/dev/null )
+  if [ ! -f frontend/build/200.html ] && [ ! -f frontend/build/index.html ]; then
+    die "SPA build produced no document in frontend/build"
+  fi
+}
+
 cmd_e2e() {
   # Serialize e2e MACHINE-WIDE. The Better Auth sidecar binds a fixed port and each
   # run launches a headless browser (~0.5–1 GB); two concurrent e2e runs collide on
@@ -195,6 +224,7 @@ cmd_e2e() {
     flock 9
   fi
   _ensure_env
+  build_spa
   cmd_db
   reset_db
   log "installing playwright chromium (idempotent)"
