@@ -1,0 +1,3 @@
+# Default code owner for all flowolf86 repos that don't define their own CODEOWNERS.
+# (A repo-local .github/CODEOWNERS overrides this default.)
+* @flowolf86
